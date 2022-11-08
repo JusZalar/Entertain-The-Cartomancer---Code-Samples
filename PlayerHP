@@ -1,0 +1,294 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using FishNet.Object;
+using FishNet.Object.Synchronizing;
+using FishNet.Connection;
+using UnityEngine.InputSystem;
+using TMPro;
+using UnityEngine.UI;
+
+public class PlayerHP : NetworkBehaviour
+{
+    public int Money;
+
+
+    [SyncVar(OnChange = nameof(SyncCanBeTargeted))] public bool CanBeTargeted;
+
+    [Header("Hit point things")]
+    [SyncVar(Channel = FishNet.Transporting.Channel.Reliable, OnChange = nameof(SyncHP))]
+    public float HP;
+    public float MaxHP;
+    public bool alive = true;
+
+    [Header("Resistances")]
+    public float normalR;
+    public float fireR;
+    public float waterR;
+    public float earthR;
+    public float electiricR;
+    public float forceR;
+
+    [Header("Ignore")]
+    public TextMeshProUGUI myHPbar;
+    public Slider myHPSlider;
+
+    public Controls CM;
+
+    private void Awake()
+    {
+        EnergyCurBowl = EnergyBowlMax;
+        HP = MaxHP;
+
+        CM = new Controls();
+        CM.Player.Enable();
+        CM.Player.EnergyBowlHeal.Enable();
+        CM.Player.EnergyBowlCrit.Enable();
+        CM.Player.EnergyBowlHeal.started += EnergyHeal;
+        CM.Player.EnergyBowlCrit.started += EnergyCrit;
+
+    }
+    private void FixedUpdate()
+    {
+        EnergyBowlCounter();
+    }
+
+    public override void OnStartServer()
+    {
+        base.OnStartServer();
+        if (IsServer)
+            HP = MaxHP;
+    }
+
+    [ObserversRpc]
+    private void EnableScript()
+    {
+        if(TryGetComponent(out Heavy hevy))
+        {
+            hevy.alive = true;
+        }
+    }
+    [ObserversRpc]
+    private void DisableScript()
+    {
+        if (TryGetComponent(out Heavy hevy))
+        {
+            hevy.alive = false;
+        }
+    }
+
+
+    #region Revive
+    [Header("Revive Things")]
+    public float RevAdd;
+    public float RevBaseAmount;
+    public float RevAmountIncreasePerDeath;
+
+    [ServerRpc(RequireOwnership = false)]
+    public void BeRevived()
+    {
+        HP = MaxHP;
+        CanBeTargeted = true;
+        alive = true;
+        EnableScript();
+        BeLocalRevived();
+    }
+    [ObserversRpc]
+    private void BeLocalRevived()
+    {
+        if (IsServer)
+            return;
+        CanBeTargeted = true;
+        alive = true;
+        EnableScript();
+    }
+    
+    public LayerMask PlayerMask;
+    public GameObject RevivePrefab;
+    private int DownedNum;
+
+    #endregion
+
+    #region EnergyBowl
+    [Header("Energy Bowl")]
+    public float EnergyBowlMax;
+    [HideInInspector]
+    public float EnergyCurBowl;
+    public float EnergyBowlRecharge;
+    private bool EBUsing;
+
+    public Slider EBSlider;
+    public TextMeshProUGUI EBNumber;
+
+    [Tooltip("1 means % of Energy Bowl will heal same % of HP")]
+    public float EBInstaHealMultiplier;
+
+    [Tooltip("1 means 2x total damage")]
+    public float ECDamageMutliplier; //1 means 2x total damage
+    public float EBCritRemove;
+
+    private void EnergyBowlCounter()
+    {
+        if (!alive)
+            return;
+
+        if (!EBUsing)
+        {
+            EnergyCurBowl += Time.deltaTime * EnergyBowlRecharge;
+            if (EnergyCurBowl >= EnergyBowlMax)
+                EnergyCurBowl = EnergyBowlMax;
+        }
+        else
+        {
+            EnergyCurBowl -= Time.deltaTime * EBCritRemove;
+            if (EnergyCurBowl >= EnergyBowlMax)
+                EnergyCurBowl = EnergyBowlMax;
+
+            if (EnergyCurBowl <= 0f)
+            {
+                EBUsing = false;
+                if (TryGetComponent(out Heavy heavy))
+                {
+                    heavy.DMGmulti -= ECDamageMutliplier;
+                }
+            }
+        }
+        EBSlider.value = EnergyCurBowl / EnergyBowlMax;
+    }
+
+
+
+
+
+    private void EnergyHeal(InputAction.CallbackContext ctx)
+    {
+        if (!alive)
+            return;
+
+        float MAXEBHEAL = (MaxHP * ((EnergyCurBowl / EnergyBowlMax) * EBInstaHealMultiplier));
+        if (HP + MAXEBHEAL <= MaxHP)
+        {
+            HP += MAXEBHEAL;
+            EnergyCurBowl = 0f;
+        }
+        else
+        {
+            EnergyCurBowl *= 1f - ((MaxHP - HP) / MAXEBHEAL);
+            HP = MaxHP;
+        }
+    }
+    private void EnergyCrit(InputAction.CallbackContext ctx)
+    {
+        if (!alive)
+            return;
+
+        EBUsing = true;
+        if (TryGetComponent(out Heavy heavy))
+        {
+            heavy.DMGmulti += ECDamageMutliplier;
+        }
+    }
+    #endregion
+    
+    #region Damage & Status
+    [Header("Taking Damage")]
+    public float PlayerHPDamageMultiplayer = 1f;
+    public bool CanHealSelf;
+    public void TakeDamage(float dmg, string type)
+    {
+        if (!IsServer || !alive)
+            return;
+        //Debug.Log(alive + " " + HP);
+        float resistance = DetermineDMGType(type);
+        resistance = 1f - (resistance / 100f);
+        HP -= dmg * resistance * PlayerHPDamageMultiplayer;
+        if(HP <= 0f)
+        {
+            Death();
+            CanBeTargeted = false;
+            alive = false;
+            HP = 0f;
+        }
+    }
+    private void Death() //server side
+    {
+        GameObject g = Instantiate(RevivePrefab);
+        Spawn(g);
+        g.transform.position = transform.position;
+        ReviveScript revS = g.GetComponent<ReviveScript>();
+        revS.source = this;
+        revS.sourceNO = transform.GetComponent<NetworkObject>();
+        revS.AmountToRevive = RevBaseAmount + (RevAmountIncreasePerDeath * DownedNum);
+
+        LocalDeath(g.GetComponent<NetworkObject>(), RevBaseAmount + (RevAmountIncreasePerDeath * DownedNum), transform.GetComponent<NetworkObject>().Owner);
+        revS.StartClient();
+        DownedNum++;
+    }
+
+    [ObserversRpc]
+    private void LocalDeath(NetworkObject revGO, float amounttorev, NetworkConnection sorc)
+    {
+        revGO.GetComponent<ReviveScript>().AmountToRevive = amounttorev;
+        revGO.GetComponent<ReviveScript>().sourceNO = sorc.FirstObject;
+        CanBeTargeted = false;
+        alive = false;
+        CancelInvoke();
+        DisableScript();
+    }
+
+    private void SyncHP(float prev, float next, bool asServer)
+    {
+        if (!asServer)
+            HP = next;
+        if (IsOwner)
+        {
+            myHPSlider.value = next / MaxHP;
+            myHPbar.text = (next.ToString("F0") + "/" + MaxHP);
+        }
+        //update for other players
+    }
+    private void SyncCanBeTargeted(bool prev, bool next, bool AsServer)
+    {
+        CanBeTargeted = next;
+    }
+    
+
+    private float DetermineDMGType(string type)
+    {
+        if (type == "normal")
+            return normalR;
+        if (type == "fire")
+            return fireR;
+        if (type == "water")
+            return waterR;
+        if (type == "earth")
+            return earthR;
+        if (type == "electric")
+            return electiricR;
+        if (type == "force")
+            return forceR;
+        return 0;
+    }
+
+
+    public void TakeStatus(string status, float duration)
+    {
+        if(duration == 0f)
+        {
+            Debug.LogWarning("Duration on status effect " + status + " came with durration 0, please find source and fix (setting to deafult 3 seconds)");
+            duration = 3f;
+        }
+
+        if (status == "burn")
+            Burning(duration);
+    }
+    #endregion
+
+
+    [ServerRpc]
+    public void SetSelfHeal()
+    {
+        CanHealSelf = true;
+    }
+
+}
