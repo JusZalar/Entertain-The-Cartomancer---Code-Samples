@@ -1,0 +1,2425 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using FishNet.Object;
+using UnityEngine.InputSystem;
+using UnityEngine.UI;
+using FishNet.Object.Synchronizing;
+using FishNet.Managing.Timing;
+
+public class Heavy : NetworkBehaviour
+{
+    [HideInInspector]
+    public Transform camChild;
+    [HideInInspector]
+    public Rigidbody rb;
+    public LayerMask EnemyMask;
+
+    public Controls iA;
+    public PlayerInput InputC;
+    public LayerMask PlayerMask;
+    public LayerMask upgradeMask;
+    public RaycastHit[] upgradeHits = new RaycastHit[1];
+
+    public float speed = 5;
+    public float speedSide = 5;
+    [Header("Setting this nummber too high will decrease performance")] public int maxEnemies;
+    private bool isGrounded;
+    public Vector3 GroundedV3;
+    public float sensitivity;
+    public float Keyboardsensitivity;
+    public float ControllerSensitivity;
+    public LayerMask ground;
+    private float camRot;
+    public float downForce;
+    public float truedownForce;
+    public float maxDownForce;
+    private Vector2 moveVec;
+    private ControlsSwitcher localCanvas;
+    private PlayerHP MyHP;
+    public DataHolder dataHolder;
+    public bool alive = true;
+    public bool menued;
+    public Color rebindUsedColor;
+
+    #region Sway
+    public float swayAmount;
+    public float swayMax;
+    public float swayMin;
+    public float swaySmoothing;
+    private Vector2 swayRot;
+    private Transform swayobjToSway;
+    private Vector3 swayStartPos;
+    private Transform swayobjToSway2;
+    private Vector3 swayStartPos2;
+    #endregion
+
+
+    #region Keyboard Sliders
+    private Transform Keyboard;
+    private Slider Tab;
+    private Slider Q;
+    private Slider E;
+    private Slider R;
+    private Slider F;
+    private Slider LMB;
+    private Slider RMB;
+    private Slider Shift;
+    private Slider SpaceS;
+    #endregion
+    #region Controller Sliders
+    private Transform Controller;
+    private Slider A;
+    private Slider B;
+    private Slider X;
+    private Slider Y;
+    private Slider RB;
+    private Slider RT;
+    private Slider LB;
+    private Slider LT;
+    private Slider LS;
+    #endregion
+    #region Slider Strings
+    private string a1sl; //a1 = action1 sl = slider
+    private string a2sl;
+    private string a3sl;
+    private string a4sl;
+    private string u1sl;
+    private string u2sl;
+    private string u3sl;
+    private string u4sl;
+    private string jsl;
+    #endregion
+
+    private void Start()
+    {
+        camChild = transform.GetChild(0);
+        rb = transform.GetComponent<Rigidbody>();
+        MyHP = transform.GetComponent<PlayerHP>();
+        Cursor.lockState = CursorLockMode.Locked;
+        minigunRotAmount = new Vector3(minigunRotAmountFloat, 0f, 0f);
+        EnemyAndRagollLayerMask |= (1 << LayerMask.NameToLayer("RagdollParent"));
+        EnemyAndRagollLayerMask |= (1 << LayerMask.NameToLayer("Enemy"));
+    }
+
+    private void Awake()
+    {
+        InputC = transform.GetComponent<PlayerInput>();
+        iA = new Controls();
+        iA.Player.Action1.Enable();
+        iA.Player.Action2.Enable();
+        iA.Player.Action3.Enable();
+        iA.Player.Action4.Enable();
+        iA.Player.Ult1.Enable();
+        iA.Player.Ult2.Enable();
+        iA.Player.Ult3.Enable();
+        iA.Player.Ult4.Enable();
+        iA.Player.Jump.Enable();
+        iA.Player.Menu.Enable();
+        iA.Player.Look.Enable();
+
+
+        //naming convention A1 = Action1, U1 = Ult1, J = Jump, Mo = Movement, M = Menu
+        iA.Player.Action1.started += A1s;
+        iA.Player.Action1.canceled += A1c;
+        iA.Player.Action2.started += A2s;
+        iA.Player.Action2.canceled += A2c;
+        iA.Player.Action3.started += A3s;
+        iA.Player.Action3.canceled += A3c;
+        iA.Player.Action4.started += A4s;
+        iA.Player.Action4.canceled += A4c;
+        iA.Player.Ult1.started += U1s;
+        iA.Player.Ult1.canceled += U1c;
+        iA.Player.Ult2.started += U2s;
+        iA.Player.Ult2.canceled += U2c;
+        iA.Player.Ult3.started += U3s;
+        iA.Player.Ult3.canceled += U3c;
+        iA.Player.Ult4.started += U4s;
+        iA.Player.Ult4.canceled += U4c;
+        iA.Player.Jump.started += Js;
+        iA.Player.Jump.canceled += Jc;
+        iA.Player.Menu.started += Ms;
+        iA.Player.Menu.canceled += Mc;
+
+
+        Keyboard = transform.GetChild(1).GetChild(1).GetChild(0);
+        LMB = Keyboard.Find("LMB").GetComponent<Slider>();
+        RMB = Keyboard.Find("RMB").GetComponent<Slider>();
+        Tab = Keyboard.Find("Tab").GetComponent<Slider>();
+        Q = Keyboard.Find("Q").GetComponent<Slider>();
+        E = Keyboard.Find("E").GetComponent<Slider>();
+        R = Keyboard.Find("R").GetComponent<Slider>();
+        F = Keyboard.Find("F").GetComponent<Slider>();
+        Shift = Keyboard.Find("Shift").GetComponent<Slider>();
+        SpaceS = Keyboard.Find("Space").GetComponent<Slider>();
+
+        Controller = transform.GetChild(1).GetChild(1).GetChild(1);
+        A = Controller.Find("A").GetComponent<Slider>();
+        B = Controller.Find("B").GetComponent<Slider>();
+        X = Controller.Find("X").GetComponent<Slider>();
+        Y = Controller.Find("Y").GetComponent<Slider>();
+        RB = Controller.Find("RB").GetComponent<Slider>();
+        RT = Controller.Find("RT").GetComponent<Slider>();
+        LB = Controller.Find("LB").GetComponent<Slider>();
+        LT = Controller.Find("LT").GetComponent<Slider>();
+        LS = Controller.Find("LS").GetComponent<Slider>();
+
+        Keyboard.gameObject.SetActive(true);
+        sensitivity = Keyboardsensitivity;
+        LastControlScheme = InputC.currentControlScheme;
+        ResetValues();
+    }
+
+    public void ResetValues()
+    {
+        MinigunTimeLeft = MinigunTotalTime;
+        HammerspinCurrentTime = HammerspinRechargeTime;
+        JumpFlyTimeCur = JumpFlyTime;
+        RoarRechargeCur = RoarRechargeTime;
+        KickRechargeCur = KickRechargeTime;
+        GLcurShotAmount = GLShotMax;
+        GLCanFire = true;
+        BlockCan = true;
+        LaunchCan = true;
+        SmashCan = true;
+        SmashCanRecharge = true;
+        SmashCurTime = SmashRechargeTime;
+        ThrowAvalableHammers = ThrowMaxHammers;
+        MeeleStartRot = MeeleArt.localRotation;
+        MeeleCan = true;
+    }
+
+
+    public override void OnStartClient()
+    {
+        base.OnStartClient();
+        if (base.IsOwner)
+        {
+            transform.GetChild(0).GetComponent<Camera>().enabled = true;
+            transform.GetChild(0).GetComponent<AudioListener>().enabled = true;
+            localCanvas = transform.GetChild(1).GetComponent<ControlsSwitcher>();
+            localCanvas.gameObject.SetActive(true);
+
+            transform.GetComponent<PlayerInput>().enabled = true;
+            
+            camChild = transform.GetChild(0);
+            rb = transform.GetComponent<Rigidbody>();
+
+            TimeManager.OnTick += FixedU;
+
+            dataHolder = GameObject.FindWithTag("Manager").GetComponent<DataHolder>();
+
+            RebindAction(iA.Player.Jump, "JumpStart", "JumpEnd", "JumpFlySlider");
+        }
+    }
+    public override void OnStartServer()
+    {
+        base.OnStartServer();
+        if (IsServer)
+        {
+            GameObject.FindWithTag("Manager").GetComponent<DataHolder>().PlayerConnected(transform.GetComponent<NetworkObject>());
+        }
+    }
+
+
+
+    [HideInInspector]
+    public float DMGmulti = 0f;
+
+    [ServerRpc]
+    public void DoDamage(EnemyHP enemy, float dmg, string dmgtype)
+    {
+        float damg = dmg * (1f + DMGmulti);
+        float tdamg = damg;
+
+        if(FriendShitPowersMaxDistance > 0f) // Friendshitpowers
+        {
+            foreach(NetworkObject pleb in dataHolder.Players)
+            {
+                if (Vector3.Distance(transform.position, pleb.transform.position) <= FriendShitPowersMaxDistance)
+                {
+                    tdamg += damg * (1f + FriendShitPowersMultiplier);
+                    break; // as not to stack for each ajacent player
+                }
+            }
+        }// Friendshitpowers
+
+        if (AsocialMaxDistance > 0f) // Asocial
+        {
+            tdamg += damg * (1f + AsocialMultiplier);
+            foreach (NetworkObject pleb in dataHolder.Players)
+            {
+                if (Vector3.Distance(transform.position, pleb.transform.position) <= AsocialMaxDistance)
+                {
+                    tdamg -= damg * (1f + AsocialMultiplier);
+                    break; // as not to stack for each ajacent player
+                }
+            }
+        }// Asocial
+        
+        if (ComeAtMeBroMutiplier > 0f) // come at me bro
+        {
+            tdamg += damg * (1f + ((Vector3.Distance(transform.position, enemy.transform.position) - ComeAtMeBroMaxDistance) / -ComeAtMeBroMaxDistance) * ComeAtMeBroMutiplier);
+        }// come at me bro
+
+        if (PussyCatMuliplier > 0f) //Pussy Cat
+        {
+            tdamg += damg * (1f + (((Vector3.Distance(transform.position, enemy.transform.position) - PussyCatMinimumDistance) / (PussyCatMaximumDistance - PussyCatMinimumDistance)) * PussyCatMuliplier));
+        }//Pussy Cat
+
+        enemy.TakeDamage(tdamg, dmgtype);
+
+        if (CholericCurRate > 0f) //Choleric
+        {
+            MyHP.EnergyCurBowl += tdamg * CholericCurRate;
+        }//Choleric
+    }
+
+    [HideInInspector]
+    public float StatusPercent = 0f;
+
+    [ServerRpc]
+    private void DoStatusEffect(EnemyHP enemy, string type, float duration, float chance)
+    {
+        if (Random.Range(1f, 100f) <= chance + StatusPercent + BetterIBTGExtraChance)
+            enemy.TakeStatusEffect(type, duration);
+    }
+
+    private bool DoUpgrade()
+    {
+        if (!IsRebinind && !Action && !Ult && Physics.RaycastNonAlloc(camChild.position, camChild.forward, upgradeHits, 3f, upgradeMask) > 0)
+        {
+            if(upgradeHits[0].transform.gameObject.layer == 12)
+            {
+                upgradeHits[0].transform.GetComponent<PassiveAbilityAssigner>().GivePassiveAbility(NetworkObject);
+            }
+            else
+            {
+                IsRebinind = true;
+                upgradeHits[0].transform.GetComponent<CardHolder>().DoThing(transform, NetworkObject.Owner.ClientId);
+            }
+            return true;
+        }
+        else return false;
+    }
+    public void RebindAction(InputAction iaa, string down, string up, string slider)
+    {
+        if (!base.IsOwner)
+            return;
+        IsRebinind = false;
+        if (slider == null || slider.Length == 0) // (if we trashed and didnt set any new value || couldnt buy) but still started Rebind we gotta reset IsRebind by calling this void with all null
+            return;
+
+        if (slider == "Upgrade")
+        {
+            Invoke(down, 0f);
+            return;
+        }
+        //rebindUsedColor = new Color(255, 126, 23);
+        if (iaa.name == "Action1")
+        {
+            a1ss = down;
+            if (up != "")
+                a1cs = up;
+            else
+                a1cs = "";
+            a1sl = slider;
+            LMB.transform.Find("Bar").GetComponent<Image>().color = rebindUsedColor;
+            RB.transform.Find("Bar").GetComponent<Image>().color = rebindUsedColor;
+        }
+        if (iaa.name == "Action2")
+        {
+            a2ss = down;
+            if (up != "")
+                a2cs = up;
+            else
+                a2cs = "";
+            a2sl = slider;
+            RMB.transform.Find("Bar").GetComponent<Image>().color = rebindUsedColor;
+            LB.transform.Find("Bar").GetComponent<Image>().color = rebindUsedColor;
+        }
+        if (iaa.name == "Action3")
+        {
+            a3ss = down;
+            if (up != "")
+                a3cs = up;
+            else
+                a3cs = "";
+            a3sl = slider;
+            E.transform.Find("Bar").GetComponent<Image>().color = rebindUsedColor;
+            RT.transform.Find("Bar").GetComponent<Image>().color = rebindUsedColor;
+        }
+        if (iaa.name == "Action4")
+        {
+            a4ss = down;
+            if (up != "")
+                a4cs = up;
+            else
+                a4cs = "";
+            a4sl = slider;
+            Q.transform.Find("Bar").GetComponent<Image>().color = rebindUsedColor;
+            LT.transform.Find("Bar").GetComponent<Image>().color = rebindUsedColor;
+        }
+        if (iaa.name == "Ult1")
+        {
+            u1ss = down;
+            if (up != "")
+                u1cs = up;
+            else
+                u1cs = "";
+            u1sl = slider;
+            F.transform.Find("Bar").GetComponent<Image>().color = rebindUsedColor;
+            X.transform.Find("Bar").GetComponent<Image>().color = rebindUsedColor;
+        }
+        if (iaa.name == "Ult2")
+        {
+            u2ss = down;
+            if (up != "")
+                u2cs = up;
+            else
+                u2cs = "";
+            u2sl = slider;
+            Tab.transform.Find("Bar").GetComponent<Image>().color = rebindUsedColor;
+            B.transform.Find("Bar").GetComponent<Image>().color = rebindUsedColor;
+        }
+        if (iaa.name == "Ult3")
+        {
+            u3ss = down;
+            if (up != "")
+                u3cs = up;
+            else
+                u3cs = "";
+            u3sl = slider;
+            R.transform.Find("Bar").GetComponent<Image>().color = rebindUsedColor;
+            Y.transform.Find("Bar").GetComponent<Image>().color = rebindUsedColor;
+        }
+        if (iaa.name == "Ult4")
+        {
+            u4ss = down;
+            if (up != "")
+                u4cs = up;
+            else
+                u4cs = "";
+            u4sl = slider;
+            Shift.transform.Find("Bar").GetComponent<Image>().color = rebindUsedColor;
+            LS.transform.Find("Bar").GetComponent<Image>().color = rebindUsedColor;
+        }
+        if (iaa.name == "Jump")
+        {
+            jss = down;
+            if (up != "")
+                jcs = up;
+            else
+                jcs = "";
+            jsl = slider;
+        }
+    }
+
+    private bool IsRebinind;
+    private bool Action;
+    private bool Ult;
+
+    #region InputActionRedirects
+
+    private string a1ss = "";
+    private string a1cs = "";
+    private void A1s(InputAction.CallbackContext ctx)
+    {
+        if (!DoUpgrade() && !IsRebinind && alive && a1ss.Length != 0)
+            Invoke(a1ss, 0f);
+    }
+    private void A1c(InputAction.CallbackContext ctx)
+    {
+        if (!IsRebinind && a1cs.Length != 0)
+            Invoke(a1cs, 0f);
+    }
+    private string a2ss = "";
+    private string a2cs = "";
+    private void A2s(InputAction.CallbackContext ctx)
+    {
+        if (!IsRebinind && alive && a2ss.Length != 0)
+            Invoke(a2ss, 0f);
+    }
+    private void A2c(InputAction.CallbackContext ctx)
+    {
+        if (!IsRebinind && a2cs.Length != 0)
+            Invoke(a2cs, 0f);
+    }
+    private string a3ss = "";
+    private string a3cs = "";
+    private void A3s(InputAction.CallbackContext ctx)
+    {
+        if (!IsRebinind && alive && a3ss.Length != 0)
+            Invoke(a3ss, 0f);
+    }
+    private void A3c(InputAction.CallbackContext ctx)
+    {
+        if (!IsRebinind && a3cs.Length != 0)
+            Invoke(a3cs, 0f);
+    }
+    private string a4ss = "";
+    private string a4cs = "";
+    private void A4s(InputAction.CallbackContext ctx)
+    {
+        if (!IsRebinind && alive && a4ss.Length != 0)
+            Invoke(a4ss, 0f);
+    }
+    private void A4c(InputAction.CallbackContext ctx)
+    {
+        if (!IsRebinind && a4cs.Length != 0)
+            Invoke(a4cs, 0f);
+    }
+    private string u1ss = "";
+    private string u1cs = "";
+    private void U1s(InputAction.CallbackContext ctx)
+    {
+        if (!IsRebinind && alive && u1ss.Length != 0)
+            Invoke(u1ss, 0f);
+    }
+    private void U1c(InputAction.CallbackContext ctx)
+    {
+        if (!IsRebinind && u1cs.Length != 0)
+            Invoke(u1cs, 0f);
+    }
+    private string u2ss = "";
+    private string u2cs = "";
+    private void U2s(InputAction.CallbackContext ctx)
+    {
+        if (!IsRebinind && alive && u2ss.Length != 0)
+            Invoke(u2ss, 0f);
+    }
+    private void U2c(InputAction.CallbackContext ctx)
+    {
+        if (!IsRebinind && u2cs.Length != 0)
+            Invoke(u2cs, 0f);
+    }
+    private string u3ss = "";
+    private string u3cs = "";
+    private void U3s(InputAction.CallbackContext ctx)
+    {
+        if (!IsRebinind && alive && u3ss.Length != 0)
+            Invoke(u3ss, 0f);
+    }
+    private void U3c(InputAction.CallbackContext ctx)
+    {
+        if (!IsRebinind && u3cs.Length != 0)
+            Invoke(u3cs, 0f);
+    }
+    private string u4ss = "";
+    private string u4cs = "";
+    private void U4s(InputAction.CallbackContext ctx)
+    {
+        if (!IsRebinind && alive && u4ss.Length != 0)
+            Invoke(u4ss, 0f);
+    }
+    private void U4c(InputAction.CallbackContext ctx)
+    {
+        if (!IsRebinind && u4cs.Length != 0)
+            Invoke(u4cs, 0f);
+    }
+    private string jss = "";
+    private string jcs = "";
+    private void Js(InputAction.CallbackContext ctx)
+    {
+        if (!IsRebinind && alive && jss.Length != 0)
+            Invoke(jss, 0f);
+    }
+    private void Jc(InputAction.CallbackContext ctx)
+    {
+        if (!IsRebinind && jcs.Length != 0)
+            Invoke(jcs, 0f);
+    }
+
+    private void Ms(InputAction.CallbackContext ctx)
+    {
+        if (!IsRebinind)
+            localCanvas.GiveMenu(!menued, alive); // if menued is false we want menu, or oposite
+    }
+    private void Mc(InputAction.CallbackContext ctx)
+    {
+
+    }
+    #endregion
+
+    #region SliderUpdates
+    private void A1SliderUpdate(float val)
+    {
+        LMB.value = val;
+        RB.value = val;
+        
+    }
+    private void A2SliderUpdate(float val)
+    {
+        RMB.value = val;
+        LB.value = val;
+        
+    }
+    private void A3SliderUpdate(float val)
+    {
+        E.value = val;
+        RT.value = val;
+        
+    }
+    private void A4SliderUpdate(float val)
+    {
+        Q.value = val;
+        LT.value = val;
+        
+    }
+    private void U1SliderUpdate(float val)
+    {
+        F.value = val;
+        X.value = val;
+        
+    }
+    private void U2SliderUpdate(float val)
+    {
+        Tab.value = val;
+        B.value = val;
+        
+    }
+    private void U3SliderUpdate(float val)
+    {
+        R.value = val;
+        Y.value = val;
+        
+    }
+    private void U4SliderUpdate(float val)
+    {
+        Shift.value = val;
+        LS.value = val;
+        
+    }
+    private void JSliderUpdate(float val)
+    {
+        SpaceS.value = val;
+        A.value = val;
+        
+    }
+    #endregion
+
+
+    public void OnMove(InputValue ctx)
+    {
+        if (!IsOwner)
+            return;
+        //ac.CrossFade("Run", 1f);
+        Vector2 moveValue = ctx.Get<Vector2>();
+        if (moveValue.x > 0.5f)
+            moveValue.x = 1f;
+        if (moveValue.x < -0.5f)
+            moveValue.x = -1f;
+        if (moveValue.y > 0.5f)
+            moveValue.y = 1f;
+        if (moveValue.y < -0.5f)
+            moveValue.y = -1f;
+        moveVec = moveValue;
+    }
+
+    public delegate void ControlsChanged(string newControlName);
+    public ControlsChanged OnControlsChanged;
+    //private RaycastHit[] groundedResults;
+
+    private void FixedU()
+    {
+        if (!IsOwner)
+            return;
+
+        if (Physics.CheckBox(transform.position + transform.up * -1.5f, GroundedV3, transform.rotation, ground, QueryTriggerInteraction.Ignore))
+            isGrounded = true;
+        else
+            isGrounded = false;
+
+        if (!isGrounded && (rb.velocity.y < 3f) && !JumpIsFly)
+        {
+            rb.AddForce(new Vector3(0f, -truedownForce, 0f), ForceMode.Acceleration);
+            if (truedownForce < maxDownForce)
+                truedownForce += downForce;
+        }//downforce
+        if (truedownForce != downForce)
+        {
+            if (isGrounded || JumpIsFly || rb.velocity.y > 3f)
+                truedownForce = downForce;
+        }//downforce reset
+
+        if (alive)
+            rb.velocity += transform.forward * moveVec.y * speed * (float)TimeManager.TickDelta + transform.right * moveVec.x * speedSide * (float)TimeManager.TickDelta;
+
+        #region Looks
+        if (!menued)
+        {
+            Vector2 lookValue = iA.Player.Look.ReadValue<Vector2>();
+            swayRot = lookValue;
+            camRot -= lookValue.y * (float)TimeManager.TickDelta * sensitivity;
+            camRot = Mathf.Clamp(camRot, -90, 90);
+            transform.localEulerAngles += new Vector3(0, lookValue.x, 0) * (float)TimeManager.TickDelta * sensitivity;
+            camChild.localEulerAngles = new Vector3(camRot, camChild.localEulerAngles.y, camChild.localEulerAngles.z);
+        }
+        #endregion
+
+
+    }
+
+    public string LastControlScheme;
+
+    private void FixedUpdate()
+    {
+        if (!IsOwner)
+            return;
+        
+        #region Controls
+        if (InputC.currentControlScheme != LastControlScheme)
+        {
+            if (InputC.currentControlScheme == "Keyboard&Mouse")
+            {
+                Keyboard.gameObject.SetActive(true);
+                Controller.gameObject.SetActive(false);
+                sensitivity = Keyboardsensitivity;
+            }
+            if (InputC.currentControlScheme == "Gamepad")
+            {
+                Keyboard.gameObject.SetActive(false);
+                Controller.gameObject.SetActive(true);
+                sensitivity = ControllerSensitivity;
+            }
+            LastControlScheme = InputC.currentControlScheme;
+            OnControlsChanged(LastControlScheme);
+        }
+
+        if (a1sl != null)
+        {
+            StartCoroutine(a1sl, "A1SliderUpdate");
+        }
+        if (a2sl != null)
+        {
+            StartCoroutine(a2sl, "A2SliderUpdate");
+        }
+        if (a3sl != null)
+        {
+            StartCoroutine(a3sl, "A3SliderUpdate");
+        }
+        if (a4sl != null)
+        {
+            StartCoroutine(a4sl, "A4SliderUpdate");
+        }
+        if (u1sl != null)
+        {
+            StartCoroutine(u1sl, "U1SliderUpdate");
+        }
+        if (u2sl != null)
+        {
+            StartCoroutine(u2sl, "U2SliderUpdate");
+        }
+        if (u3sl != null)
+        {
+            StartCoroutine(u3sl, "U3SliderUpdate");
+        }
+        if (u4sl != null)
+        {
+            StartCoroutine(u4sl, "U4SliderUpdate");
+        }
+        if (jsl != null)
+        {
+            StartCoroutine(jsl, "JSliderUpdate");
+        }
+        #endregion
+
+        if (!alive)
+            return;
+
+        #region Passive
+        if (LastSecondOptimistHpPercentToMultiplier > 0f)
+        {
+            SkillRechargeGlobalModdifier -= LastSecondOptimistPrevMulti;
+
+            LastSecondOptimistPrevMulti = (((MyHP.HP / MyHP.MaxHP) - 0.3f) / -0.3f) * LastSecondOptimistHpPercentToMultiplier;
+
+            if (LastSecondOptimistPrevMulti > 0f)
+                SkillRechargeGlobalModdifier += LastSecondOptimistPrevMulti;
+            else
+                LastSecondOptimistPrevMulti = 0f;
+        }
+        #endregion//currently just LastSecondOptimist Here, others are in DoDamage, DoStatus Effects or on PassiveAbbility Assign Script
+
+        #region Active
+        if (swayobjToSway != null)
+        {
+            float swayX = swayRot.x * swayAmount;
+            float swayY = swayRot.y * swayAmount;
+            if (swayX > swayMax)
+                swayX = swayMax;
+            if (swayX < -swayMax)
+                swayX = -swayMax;
+            if (swayY > swayMax)
+                swayY = swayMax;
+            if (swayY < -swayMax)
+                swayY = -swayMax;
+
+            Vector3 final = new Vector3(swayStartPos.x + swayX, swayStartPos.y + swayY, swayStartPos.z);
+            swayobjToSway.localPosition = Vector3.Lerp(swayobjToSway.localPosition, final, Time.deltaTime * swaySmoothing);
+        }
+        if (swayobjToSway2 != null)
+        {
+            float swayX = swayRot.x * swayAmount;
+            float swayY = swayRot.y * swayAmount;
+            if (swayX > swayMax)
+                swayX = swayMax;
+            if (swayX < -swayMax)
+                swayX = -swayMax;
+            if (swayY > swayMax)
+                swayY = swayMax;
+            if (swayY < -swayMax)
+                swayY = -swayMax;
+
+            Vector3 final = new Vector3(swayStartPos2.x + swayX, swayStartPos2.y + swayY, swayStartPos2.z);
+            swayobjToSway2.localPosition = Vector3.Lerp(swayobjToSway2.localPosition, final, Time.deltaTime * swaySmoothing);
+        }
+
+        if (MinigunIsShoot)
+        {
+            minigunBarel.Rotate(minigunRotAmount, Space.Self);
+            minigunBarel2.Rotate(minigunRotAmount, Space.Self);
+        }
+
+        if (HammerSpinCanDo)
+        {
+            HammerSpinPoint.Rotate(new Vector3(0f, 0f, HammerSpinSpeed), Space.Self); //basic spinning
+        }
+        if (HammerSpindCanEnd)
+        {
+            if (!HammerSpindEnd && (Quaternion.Angle(HammerSpinPoint.localRotation, Quaternion.Euler(0f, 60f, 0f)) < 10f) && (Vector3.Distance(HammerSpinHammer2.localPosition, HammerSpinLastPosRight) < 0.1f))
+            {
+                HammerSpindEnd = true;
+            } // hammers are ligned up
+            else
+            {
+                HammerSpinPoint.localRotation = Quaternion.Euler(0f, 60f, LerpFloatRot(HammerSpinPoint.localRotation.eulerAngles.z, HammerSpinLerpSpeed));
+                HammerSpinHammer2.localRotation = Quaternion.Euler(0f, 0f, LerpFloatRot(HammerSpinHammer2.localEulerAngles.x, HammerSpinLerpSpeed));
+                HammerSpinHammer2.localPosition = new Vector3(0f, LerpFloat(HammerSpinHammer2.localPosition.y, 0.5f, HammerSpinLerpSpeedLast), LerpFloat(HammerSpinHammer2.localPosition.z, 0.65f, HammerSpinLerpSpeedLast));
+            } // line up hammers before smash
+            if (HammerSpindEnd && Quaternion.Angle(HammerSpinPoint.localRotation, Quaternion.Euler(0f, 60f, 90f)) < 10f)
+            { // smash and end
+                Action = false;
+                HammerSpindEnd = false;
+                HammerSpindCanEnd = false;
+                HammerSwitchGlobal(false);
+                HammerSpinPoint.localRotation = Quaternion.Euler(0f, 60f, 0f);
+                HammerSpinHammer2.localPosition = new Vector3(0f, -0.5f, 0f);
+                HammerSpinHammer2.localRotation = Quaternion.Euler(180f, 0f, 0f);
+
+                Vector3 pos = transform.position + transform.forward * 4f;
+                HammerSpinCastCollider = new Collider[10];
+                Physics.OverlapSphereNonAlloc(pos, HammerSpinDmgRange, HammerSpinCastCollider, EnemyMask);
+                foreach (Collider col in HammerSpinCastCollider)
+                {
+                    if (col != null)
+                    {
+                        EnemyHP h = col.transform.GetComponent<EnemyHP>();
+                        float dmg = (HammerSpinBaseDamage + ((Time.time - HammerSPinTimeAtStartCharge) * HammerSpinDamagePerSecond));
+                        if (dmg > HammerSpinMaxDamage)
+                            dmg = HammerSpinMaxDamage;
+
+                        if (RoarUpg1true) // roar Upgrade 1
+                            dmg *= RoarUpg1HamDmgMltCur;
+
+                        DoDamage(h, dmg, HammerSpinDmgType);
+                    }
+                }
+                HammerParticleServer(pos + transform.up * -1.9f);
+                HammerspinCurrentTime = 0f;
+                HammerSpinCan2 = false;
+            }
+        }
+        
+        if (JumpFlyMinigunCanRotate)
+        {
+            JumpFlyMinigunBarrel.Rotate(minigunRotAmount, Space.Self);
+            JumpFlyMinigunBarrel2.Rotate(minigunRotAmount, Space.Self);
+        }
+
+        if (KickChangeArt)
+        {
+            KickArt.RotateAround(KickArtRotPoint.position, transform.right, KickArtSpeed * Time.deltaTime);
+        }
+
+        if (GLRecoil)
+        {
+            GLRecoilTr.localPosition = Vector3.Lerp(GLRecoilTr.localPosition, GLRecoilStartTR, Time.deltaTime * GLRecoilSpeed);
+        }
+
+        if (!SmashCanRecharge)
+        {
+            if (JumpFlyWant == true)
+                JumpFlyWant = false;
+            if (isGrounded)
+                SmashEnd();
+        }
+
+        if (MeeleAnimate)
+        {
+            MeeleArt.Rotate(MeeleSpinSpeed * Time.deltaTime, Space.Self);
+        }
+        #endregion
+    }
+
+    public float SkillRechargeGlobalModdifier; // uses   * (1f + SkillRechargeGlobalModdifier) syntax, so to add 50% more skill rechrage add 0.5f, but remember to remove!
+
+    #region Miniguns
+    [Header("Minigun Variables")]
+    public float minigunDamage;
+    public string minigunDmgType;
+    public float minigunRoundsPerMinute;
+    public Transform Minigun;
+    public Transform minigunBarel;
+    private RaycastHit minigunRayhit;
+    private Vector3 minigunRotAmount;
+    public float minigunRotAmountFloat;
+    public LayerMask AllbutPlayerLayer;
+
+    public Transform minigunParticlePool;
+
+    public Transform minigunBarel2;
+    public List<MeshRenderer> MinigunMeshes = new List<MeshRenderer>();
+    public List<ParticleSystem> MinigunParticles = new List<ParticleSystem>();
+
+    public float MinigunTotalTime;
+    private float MinigunTimeLeft;
+    public float MinigunRechargePerSec;
+    private bool MinigunIsShoot;
+
+    [SyncVar(OnChange = nameof(MinigunOnChange))] public bool MinigunArtIsActive;
+
+
+    private void MinigunStart()
+    {
+        if (MinigunTimeLeft < 1f)
+            return;
+
+        if (Action)
+            return;
+        else
+            Action = true;
+
+        MinigunTimeLeft -= 0.5f;
+        MinigunChangeActive(true);
+        float secondrepeat = 60f / minigunRoundsPerMinute;
+        InvokeRepeating("MinigunShoot", 0f, secondrepeat);
+        MinigunIsShoot = true;
+
+        swayobjToSway = Minigun;
+        swayStartPos = Minigun.localPosition;
+    }
+    private void MinigunShoot()
+    {
+        Physics.Raycast(camChild.position, camChild.forward, out minigunRayhit, 300f, AllbutPlayerLayer, QueryTriggerInteraction.Ignore);
+        if (minigunRayhit.transform != null)
+        {
+            Transform hit = minigunRayhit.transform;
+            if (hit.gameObject.layer == 7) // damage to enemy
+            {
+                EnemyHP enhp = minigunRayhit.transform.GetComponent<EnemyHP>();
+                DoDamage(enhp, minigunDamage, minigunDmgType);
+            }
+            if (hit.gameObject.layer == 7) // blood effect if hiting enemy
+            {
+                ReturnPrtcle(0, minigunRayhit.point, transform.position);
+            }
+            else // otherwise rock effect
+            {
+                ReturnPrtcle(1, minigunRayhit.point, transform.position);
+            }
+        }
+    }
+    private void MinigunCancel()
+    {
+        if (!MinigunIsShoot)
+            return;
+        Action = false;
+
+        MinigunIsShoot = false;
+        MinigunChangeActive(false);
+        CancelInvoke("MinigunShoot");
+        swayobjToSway = null;
+        Minigun.localPosition = swayStartPos;
+    }
+
+    [ServerRpc]
+    private void ReturnPrtcle(int child, Vector3 pos, Vector3 look)
+    {
+        RRReturnPrtcle(child, pos, look);
+    }
+    [ObserversRpc]
+    private void RRReturnPrtcle(int child, Vector3 pos, Vector3 look)
+    {
+        if (minigunParticlePool.GetChild(child).childCount == 0)
+            return;
+        Transform particle = minigunParticlePool.GetChild(child).GetChild(0);
+        particle.SetParent(null);
+        particle.position = pos;
+        particle.LookAt(look);
+        particle.GetComponent<ParticleSystem>().Play();
+        StartCoroutine("ReturnParticle", particle);
+    }
+    private IEnumerator ReturnParticle(Transform particle)
+    {
+        yield return new WaitForSeconds(4f);
+        if (particle.childCount == 4)
+            particle.SetParent(minigunParticlePool.GetChild(0));
+        else
+            particle.SetParent(minigunParticlePool.GetChild(1));
+    }
+
+    private void MinigunSlider(string who)
+    {
+        float val;
+        if (!MinigunIsShoot)
+        {
+            MinigunTimeLeft += Time.deltaTime * MinigunRechargePerSec * (1f + SkillRechargeGlobalModdifier);
+            if (MinigunTimeLeft >= MinigunTotalTime)
+                MinigunTimeLeft = MinigunTotalTime;
+            if (MinigunTimeLeft < 0f)
+                MinigunTimeLeft = 0f;
+
+        }
+        else
+        {
+            MinigunTimeLeft -= Time.deltaTime;
+            if (MinigunTimeLeft <= 0f)
+            {
+                MinigunTimeLeft = 0f;
+                MinigunCancel();
+            }
+        }
+        val = MinigunTimeLeft / MinigunTotalTime;
+        StartCoroutine(who, val);
+        
+    }
+
+    [ServerRpc]
+    private void MinigunChangeActive(bool state)
+    {
+        MinigunArtIsActive = state;
+    }
+    public void MinigunOnChange(bool oldVal, bool newVal, bool AsServer)
+    {
+        foreach (MeshRenderer msh in MinigunMeshes)
+        {
+            msh.enabled = newVal;
+        }
+        foreach (ParticleSystem prtcl in MinigunParticles)
+        {
+            if (newVal)
+                prtcl.Play();
+            else
+                prtcl.Stop();
+        }
+    }
+
+
+
+    [Header("Minigun Upgrades")]
+    public float MinigunUpg1Damage;
+    public float MinigunUpg1Rpm;
+    public float MinigunUpgRechargeSpeed;
+    public float MinigunUpgMaxTime;
+
+    private void MinigunUpgradeOne()
+    {
+        minigunDamage = MinigunUpg1Damage;
+        minigunRoundsPerMinute = MinigunUpg1Rpm;
+        MinigunRechargePerSec = MinigunUpgRechargeSpeed;
+        MinigunTotalTime = MinigunUpgMaxTime;
+    }
+
+
+    #endregion
+
+    #region HammerSpin
+    [Header("Hammer Spin Variables")]
+    public float HammerSpinBaseDamage;
+    public float HammerSpinDamagePerSecond;
+    public float HammerSpinMaxDamage;
+    public string HammerSpinDmgType;
+    public float HammerSpinDmgRange;
+    private float HammerSPinTimeAtStartCharge;
+
+    private bool HammerSpinCan;
+    private bool HammerSpinCan2;
+    public float HammerspinRechargeTime;
+    private float HammerspinCurrentTime;
+
+
+    public Transform HammerSpinHammer2;
+    public Transform HammerSpinPoint;
+    public float HammerSpinSpeed;
+    private bool HammerSpinCanDo; // we spin
+    private bool HammerSpindCanEnd; // we start reseting
+    private bool HammerSpindEnd; //we smash down
+    public float HammerSpinLerpSpeed; // lerp for rotation
+    public float HammerSpinLerpSpeedLast; // lerp for position
+    public Transform HammerSpinHitEffect;
+
+    private Vector3 HammerSpinLastPosRight = new Vector3(0f, 0.5f, 0.65f);
+
+    private Collider[] HammerSpinCastCollider;
+
+    [SyncVar(OnChange = "OnHammerArtSwitch")] private bool HammersArtActive;
+
+    private void HammerStartSpin()
+    {
+        if (!HammerSpinCan)
+            return;
+        if (HammerSpindCanEnd || HammerSpindEnd)
+            return;
+
+        if (Action)
+            return;
+        else
+            Action = true;
+
+        HammerSpinCan = false;
+        HammerSwitchGlobal(true);
+        HammerSpinCanDo = true;
+        HammerSPinTimeAtStartCharge = Time.time;
+    }
+
+    private void HammerSmash()
+    {
+        if (!HammerSpinCanDo)
+            return;
+        HammerSpinCanDo = false;
+        HammerSpindCanEnd = true;
+    }
+
+    private float LerpFloat(float fl, float goal, float speed)
+    {
+        float sign;
+        if (goal >= fl)
+        {
+            sign = 1f;
+            if ((fl + (speed * sign * Time.deltaTime)) >= goal)
+                return fl = goal;
+        }
+        else
+        {
+            sign = -1f;
+            if ((fl + (speed * sign * Time.deltaTime)) <= goal)
+                return fl = goal;
+        }
+        return fl += speed * sign * Time.deltaTime;
+    }
+    private float LerpFloatRot(float fl, float speed)
+    {
+        return fl += speed * Time.deltaTime;
+    }
+
+    [ServerRpc]
+    private void HammerParticleServer(Vector3 pos)
+    {
+        HammerParticlePlay(pos);
+    }
+    [ObserversRpc]
+    private void HammerParticlePlay(Vector3 pos)
+    {
+        HammerSpinHitEffect.SetParent(null);
+        HammerSpinHitEffect.gameObject.SetActive(true);
+        HammerSpinHitEffect.position = pos;
+        HammerSpinHitEffect.rotation = Quaternion.identity;
+        HammerSpinHitEffect.GetComponent<ParticleSystem>().Play();
+        CancelInvoke("HammerReturnParticle");
+        Invoke("HammerReturnParticle", 3f);
+    }
+    private void HammerReturnParticle()
+    {
+        HammerSpinHitEffect.SetParent(HammerSpinPoint);
+        HammerSpinHitEffect.gameObject.SetActive(false);
+    }
+
+    private void HammerSpinSlider(string who)
+    {
+        float val;
+        if (!HammerSpinCan && !HammerSpinCan2)
+        {
+            if (HammerspinCurrentTime < HammerspinRechargeTime)
+            {
+                HammerspinCurrentTime += Time.deltaTime * (1f + SkillRechargeGlobalModdifier);
+                if (HammerspinCurrentTime < 0f)
+                    HammerspinCurrentTime = 0f;
+            }
+            else
+            {
+                HammerspinCurrentTime = HammerspinRechargeTime;
+                HammerSpinCan = true;
+                HammerSpinCan2 = true;
+            }
+            val = HammerspinCurrentTime / HammerspinRechargeTime;
+
+        }
+        else
+            val = 1f;
+        StartCoroutine(who, val);
+        
+    }
+
+    [ServerRpc]
+    private void HammerSwitchGlobal(bool newValue)
+    {
+        HammersArtActive = newValue;
+    }
+    private void OnHammerArtSwitch(bool oldVal, bool newVal, bool asServer)
+    {
+        HammerSpinPoint.GetChild(0).GetComponent<MeshRenderer>().enabled = newVal;
+        HammerSpinPoint.GetChild(1).GetComponent<MeshRenderer>().enabled = newVal;
+    }
+
+    #endregion
+
+    #region Jump & Fly
+    [Header("JumpAndFlyVariables")]
+    public float JumpForce;
+    private bool JumpUsed;
+    private bool JumpIsFly;
+    public float JumpFlyTime;
+    private float JumpFlyTimeCur;
+    public float JumpFlyForce;
+    public bool JumpFlyCan;
+    private bool JumpFlyWant;
+    private bool JumpFlyRecharge;
+    public float JumptFlyRechargeAmount;
+
+    public Transform JumpFlyMiniguns;
+    public Transform JumpFlyMinigunBarrel;
+    public Transform JumpFlyMinigunBarrel2;
+    private bool JumpFlyMinigunCanRotate;
+    private RaycastHit JumpFlyMinigunRayhit;
+
+    [SyncVar(OnChange = nameof(JumpFlyOnChange))] public bool JumpFlyArtIsActive;
+
+    private void JumpStart()
+    {
+        if (isGrounded)
+        {
+            rb.AddForce(transform.up * JumpForce, ForceMode.Acceleration);
+        }
+        if (JumpFlyCan)
+        {
+            JumpFlyWant = true;
+            Invoke("JumpFlyCheckStart", 0.5f);
+        }
+    }
+
+    private void JumpFlyUpgrade()
+    {
+        JumpFlyCan = true;
+    }
+
+
+    private void JumpFlyCheckStart()
+    {
+        if (JumpFlyWant)
+        {
+            JumpFlyWant = false;
+            JumpIsFly = true;
+            JumpFlyChangeActive(true);
+            JumpFlyMinigunCanRotate = true;
+            float RPS = 60f / minigunRoundsPerMinute;
+            InvokeRepeating("JumpFlyMinigunShoot", 0f, RPS);
+        }
+    }
+    private void JumpEnd()
+    {
+        JumpFlyWant = false;
+        if (JumpIsFly)
+        {
+            JumpIsFly = false;
+            if (JumpFlyArtIsActive)
+                JumpFlyChangeActive(false);
+            JumpFlyMinigunCanRotate = false;
+            CancelInvoke("JumpFlyMinigunShoot");
+        }
+    }
+
+    private void JumpFlyMinigunShoot()
+    {
+        Physics.Raycast(transform.position, -Vector3.up, out JumpFlyMinigunRayhit, 300f, AllbutPlayerLayer);
+        if (JumpFlyMinigunRayhit.transform != null)
+        {
+            Transform hit = JumpFlyMinigunRayhit.transform;
+            if (hit.gameObject.layer == 7) // damage to enemy
+            {
+                EnemyHP enhp = JumpFlyMinigunRayhit.transform.GetComponent<EnemyHP>();
+                DoDamage(enhp, minigunDamage, minigunDmgType);
+            }
+            if (hit.gameObject.layer == 7) // blood effect if hiting enemy or player
+            {
+                ReturnPrtcle(0, JumpFlyMinigunRayhit.point, transform.position);
+            }
+            else // otherwise rock effect
+            {
+                ReturnPrtcle(1, JumpFlyMinigunRayhit.point, transform.position);
+            }
+        }
+    }
+
+    private void JumpFlySlider(string who)
+    {
+        if (JumpIsFly)
+        {
+            rb.AddForce(transform.up * JumpFlyForce * Time.deltaTime, ForceMode.Acceleration);
+            if (JumpFlyTimeCur > 0f)
+                JumpFlyTimeCur -= Time.deltaTime;
+            else
+                JumpEnd();
+        }
+        else
+        {
+            JumpFlyTimeCur += JumptFlyRechargeAmount * Time.deltaTime * (1f + SkillRechargeGlobalModdifier);
+            if (JumpFlyTimeCur > JumpFlyTime)
+                JumpFlyTimeCur = JumpFlyTime;
+            if (JumpFlyTimeCur < 0f)
+                JumpFlyTimeCur = 0f;
+        }
+        StartCoroutine(who, JumpFlyTimeCur / JumpFlyTime);
+        
+    }
+
+    [ServerRpc]
+    private void JumpFlyChangeActive(bool state)
+    {
+        JumpFlyArtIsActive = state;
+    }
+    public void JumpFlyOnChange(bool oldVal, bool newVal, bool AsServer)
+    {
+        JumpFlyMiniguns.GetChild(0).GetChild(0).GetComponent<MeshRenderer>().enabled = newVal;
+        JumpFlyMiniguns.GetChild(0).GetChild(1).GetComponent<MeshRenderer>().enabled = newVal;
+        JumpFlyMiniguns.GetChild(1).GetChild(0).GetComponent<MeshRenderer>().enabled = newVal;
+        JumpFlyMiniguns.GetChild(1).GetChild(1).GetComponent<MeshRenderer>().enabled = newVal;
+
+        if(newVal)
+            JumpFlyMiniguns.GetChild(0).GetChild(2).GetComponent<ParticleSystem>().Play();
+        else
+            JumpFlyMiniguns.GetChild(0).GetChild(2).GetComponent<ParticleSystem>().Stop();
+        if (newVal)
+            JumpFlyMiniguns.GetChild(1).GetChild(2).GetComponent<ParticleSystem>().Play();
+        else
+            JumpFlyMiniguns.GetChild(1).GetChild(2).GetComponent<ParticleSystem>().Stop();
+    }
+
+    #endregion
+
+    #region Roar 
+    [Header("Roar")]
+    public float RoarDamage;
+    public string RoarDmgType;
+    public string RoarStatus = "stun";
+    public float RoarStunDuration;
+    public float RoarStunChance;
+    public float RoarRange;
+    private Collider[] RoarColliders;
+
+    private bool RoarCan;
+    public float RoarRechargeTime;
+    private float RoarRechargeCur;
+
+    public Transform RoarAnimChild;
+
+    private void RoarStart()
+    {
+        if (RoarCan)
+        {
+            if (Ult)
+                return;
+
+            if (RoarUpg1true)
+            {
+                StopCoroutine(RoarUpg1DmgIncrese());
+                StartCoroutine(RoarUpg1DmgIncrese());
+            }
+
+            RoarColliders = new Collider[10];
+            Physics.OverlapSphereNonAlloc(transform.position, RoarRange, RoarColliders, EnemyMask);
+            foreach (Collider cs in RoarColliders)
+            {
+                if (cs != null)
+                {
+                    EnemyHP h = cs.GetComponent<EnemyHP>();
+                    DoDamage(h, RoarDamage, RoarDmgType);
+                    DoStatusEffect(h, RoarStatus, RoarStunDuration, RoarStunChance);
+                }
+            }
+            RoarCan = false;
+            RoarRechargeCur = 0f;
+            //RoarAnim();
+        }
+    }
+    //[ServerRpc]
+    //private void RoarAnim()
+    //{
+    //    RoarAnimLocal();
+    //}
+    //[ObserversRpc]
+    //private void RoarAnimLocal()
+    //{
+    //    RoarAnimChild.gameObject.SetActive(true);
+    //    RoarAnimChild.GetComponent<ParticleSystem>();
+    //    StartCoroutine("RoarAnimClear");
+    //}
+    //private IEnumerator RoarAnimClear()
+    //{
+    //    yield return new WaitForSeconds(1f);
+    //    RoarAnimChild.gameObject.SetActive(false);
+    //}
+
+    private void RoarSlider(string who)
+    {
+        float val;
+        if (!RoarCan)
+        {
+            RoarRechargeCur += Time.deltaTime * (1f + SkillRechargeGlobalModdifier);
+            if (RoarRechargeCur >= RoarRechargeTime)
+            {
+                RoarRechargeCur = RoarRechargeTime;
+                val = 1;
+                RoarCan = true;
+            }
+            else
+            {
+                if (RoarRechargeCur < 0f)
+                    RoarRechargeCur = 0f;
+                val = RoarRechargeCur / RoarRechargeTime;
+            }
+        }
+        else
+            val = 1;
+        StartCoroutine(who, val);
+        
+    }
+    [Header("Roar Upgrade One")]
+    public float RoarUpg1HammerDamageMultiplier;
+    public float RoarUpg1HammerDmgUpTime;
+    private bool RoarUpg1true;
+    private float RoarUpg1HamDmgMltCur = 1f;
+
+    private void RoarUpgradeOne()
+    {
+        RoarUpg1true = true;
+    }
+    private IEnumerator RoarUpg1DmgIncrese()
+    {
+        RoarUpg1HamDmgMltCur = RoarUpg1HammerDamageMultiplier;
+        yield return new WaitForSeconds(RoarUpg1HammerDmgUpTime);
+        RoarUpg1HamDmgMltCur = 1f;
+    }
+
+    #endregion
+
+    #region Kick
+    [Header("Kick Variables")]
+    public float KickDamage;
+    public string KickDmgType;
+    public string KickStatus = "fall";
+    public float KickFallChance;
+    public float KickRange;
+    public float KickForce; // when increasing on Upgrades make sure to raise number on Server!
+    public float KickSpinForce;
+    private Collider[] KickColliders;
+    private LayerMask EnemyAndRagollLayerMask;
+
+    private bool KickCan;
+    public float KickRechargeTime;
+    private float KickRechargeCur;
+
+    public Transform KickArt;
+    [SyncVar(OnChange = nameof(KickOnChange))] public bool KickArtIsActive;
+    private bool KickChangeArt; // used for rotating in FixedU
+    private Vector3 KickArtStartPos;
+    public Transform KickArtRotPoint;
+    public float KickArtSpeed;
+
+    [Header("Fall Status make limbs flail")]
+    [Tooltip("When Enabled all abilities that have Fall Status will add forces to each limb for a better visual effect, Enabaling this may have serius impacts on performance")]
+    public bool FallLimbForces;
+
+
+    private void KickStart()
+    {
+        if (Action)
+            return;
+
+        if (KickCan)
+        {
+            KickCan = false;
+            KickChangeActive(true);
+            KickArtStartPos = KickArt.localPosition;
+            KickChangeArt = true;
+
+            KickColliders = new Collider[maxEnemies];
+
+            Physics.OverlapSphereNonAlloc(transform.position, KickRange, KickColliders, EnemyMask);
+            foreach (Collider cs in KickColliders)
+            {
+                if (cs != null)
+                {
+                    EnemyHP h = cs.GetComponent<EnemyHP>();
+                    DoDamage(h, KickDamage, KickDmgType);
+                    DoStatusEffect(h, KickStatus, 0f, KickFallChance);
+                }
+            }
+            KickRechargeCur = 0f;
+            StartCoroutine("KickArtDelay");
+            KickServerRpc();
+        }
+    }
+    [ServerRpc]
+    private void KickServerRpc()
+    {
+        StartCoroutine(KickAwayDelay());
+    }
+    private IEnumerator KickAwayDelay()
+    {
+        yield return new WaitForSeconds(0.2f);
+
+        Vector3 boomPos = transform.position + transform.up * -1f;
+        KickColliders = new Collider[30];
+        Vector3 spinF = Vector3.zero;
+
+        List<NetworkObject> corpseList = new List<NetworkObject>();
+
+        Physics.OverlapSphereNonAlloc(transform.position, KickRange, KickColliders, EnemyAndRagollLayerMask);
+
+        foreach (Collider cs in KickColliders)
+        {
+            if (cs != null)
+            {
+                if ((cs.gameObject.layer == 7) && !(cs.TryGetComponent(out Rigidbody r)) && !(r.isKinematic))
+                {
+                    r.AddExplosionForce(KickForce, boomPos, KickRange, 2f, ForceMode.VelocityChange);
+                    spinF = new Vector3(Random.Range(-KickSpinForce, KickSpinForce), Random.Range(-KickSpinForce, KickSpinForce), Random.Range(-KickSpinForce, KickSpinForce));
+                    r.AddTorque(spinF, ForceMode.Impulse);
+                    foreach (Transform c in cs.transform)
+                    {
+                        if (c.gameObject.layer == 11)
+                        {
+                            corpseList.Add(c.GetComponent<NetworkObject>());
+                            break;
+                        }
+                    }
+                }
+                if (cs.gameObject.layer == 11)
+                {
+                    corpseList.Add(cs.transform.GetComponent<NetworkObject>());
+                }
+            }
+        }
+        if (corpseList.Count > 0)
+            KickAddLocalForce(corpseList, boomPos, spinF);
+    }
+    [ObserversRpc]
+    private void KickAddLocalForce(List<NetworkObject> who, Vector3 where, Vector3 spin)
+    {
+        foreach (NetworkObject hw in who)
+        {
+            if (hw.transform.parent == null)
+            {
+                Rigidbody r = hw.transform.GetChild(0).GetComponent<Rigidbody>();
+                r.AddExplosionForce(KickForce, where, KickRange, 3f, ForceMode.VelocityChange);
+                r.AddTorque(spin, ForceMode.VelocityChange);
+            }
+            if (FallLimbForces)
+                ConfigureRagdollForce(hw.transform, where);
+        }
+    }
+    private void ConfigureRagdollForce(Transform reference, Vector3 where)
+    {
+        for (int i = 0; i < reference.childCount; i++)
+        {
+            if (reference.TryGetComponent(out Rigidbody rigib))
+            {
+                rigib.AddExplosionForce(Random.Range(-KickSpinForce, KickSpinForce), where, 0f, 1f, ForceMode.VelocityChange);
+            }
+            ConfigureRagdollForce(reference.GetChild(i), where);
+        }
+    }
+
+    private IEnumerator KickArtDelay()
+    {
+        yield return new WaitForSeconds(0.2f);
+        KickChangeArt = false;
+        KickChangeActive(false);
+        yield return new WaitWhile(() => KickArt.gameObject.activeSelf); // wait to disable so art doesnt look glitchy
+        KickArt.localPosition = KickArtStartPos;
+        KickArt.localRotation = Quaternion.identity;
+    }
+
+    private void KickSlider(string who)
+    {
+        float val;
+        if (!KickCan)
+        {
+            KickRechargeCur += Time.deltaTime * (1f + SkillRechargeGlobalModdifier);
+            if (KickRechargeCur >= KickRechargeTime)
+            {
+                KickRechargeCur = KickRechargeTime;
+                val = 1;
+                KickCan = true;
+            }
+            else
+            {
+                if (KickRechargeCur < 0f)
+                    KickRechargeCur = 0f;
+                val = KickRechargeCur / KickRechargeTime;
+            }
+        }
+        else
+            val = 1;
+        StartCoroutine(who, val);
+        
+    }
+
+    [ServerRpc]
+    private void KickChangeActive(bool state)
+    {
+        KickArtIsActive = state;
+    }
+    public void KickOnChange(bool oldVal, bool newVal, bool AsServer)
+    {
+        KickArt.GetComponent<MeshRenderer>().enabled = newVal;
+    }
+    #endregion
+
+    #region Granade Launcher
+    [Header("Granade Launcher Variables")]
+    public float GLDamage;
+    public string GLDmgType;
+    public float GLRange;
+    [Tooltip("The bomb will not blow up BEFORE this timer is reached, after ward it will trigger on Collision!")]
+    public float GLMinimumTimeToExplosion;
+
+    [Tooltip("How many seconds between shots")] public float GLFireRate;
+    public float GLShotMax;
+    [Tooltip("How much time to recharge one shot")] public float GLRechargeTime;
+    private float GLcurShotAmount;
+    private bool GLCanFire;
+    private bool GLIsFirining;
+
+    public float GLForce;
+
+    public Transform GLaunchers;
+    [SyncVar(OnChange = nameof(GLOnChange))] public bool GLArtIsActive;
+    public GameObject GLGranadePrefab;
+    public Transform GLGranades;
+    private bool GLeftOrRight;
+    private bool GLRecoil;
+    private Transform GLRecoilTr;
+    private Vector3 GLRecoilStartTR;
+    public float GLRecoilSpeed;
+
+    private void GLStart()
+    {
+        if (Action)
+            return;
+        else
+            Action = true;
+
+        GLIsFirining = true;
+        GLArtChangeState(true);
+        swayStartPos = GLaunchers.localPosition;
+        swayobjToSway = GLaunchers;
+        if (GLCanFire && (GLcurShotAmount >= 1f))
+        {
+            GLFire();
+        }
+    }
+
+    private IEnumerator GLFireWait()
+    {
+        yield return new WaitForSeconds(GLFireRate);
+        GLCanFire = true;
+        if (GLIsFirining)
+            GLFire();
+    }
+
+    private void GLFire()
+    {
+        StartCoroutine(GLFireWait());
+        if (GLcurShotAmount >= 1f)
+        {
+            GLcurShotAmount -= 1f;
+            GLCanFire = false;
+
+            if (GLRecoilTr != null)
+                GLRecoilTr.localPosition = GLRecoilStartTR;
+            if (GLeftOrRight)
+                GLRecoilTr = GLaunchers.GetChild(0);
+            else
+                GLRecoilTr = GLaunchers.GetChild(1);
+            GLRecoilStartTR = GLRecoilTr.localPosition;
+            GLRecoilTr.localPosition += new Vector3(0f, 0.1f, -0.1f);
+            GLeftOrRight = !GLeftOrRight;
+            GLRecoil = true;
+
+            if (GLGranades.childCount > 0)
+            {
+                GameObject granade = GLGranades.GetChild(0).gameObject;
+                GLSpawnGranade(granade.GetComponent<NetworkObject>(), true);
+                GLInitializeGranade(granade.GetComponent<NetworkObject>(), GLForce, !GLeftOrRight);
+            }
+            else
+            {
+                GLInitializeGranade(null, GLForce, !GLeftOrRight);
+            }
+        }
+    }
+
+    private void GLEnd()
+    {
+        if (!GLIsFirining)
+            return;
+
+        Action = false;
+
+        GLIsFirining = false;
+        GLArtChangeState(false);
+
+        GLRecoil = false;
+        if(GLRecoilTr != null)
+            GLRecoilTr.localPosition = GLRecoilStartTR;
+        GLRecoilTr = null;
+
+        GLaunchers.localPosition = swayStartPos;
+        swayobjToSway = null;
+    }
+
+    private void GLSlider(string who)
+    {
+        float val;
+        GLcurShotAmount += (1f / GLRechargeTime) * Time.deltaTime * (1f + SkillRechargeGlobalModdifier);
+        if (GLcurShotAmount >= GLShotMax)
+            GLcurShotAmount = GLShotMax;
+        if (GLcurShotAmount < 0f)
+            GLcurShotAmount = 0f;
+        val = GLcurShotAmount / GLShotMax;
+        StartCoroutine(who, val);
+        
+    }
+
+    [ServerRpc]
+    private void GLArtChangeState(bool state)
+    {
+        GLArtIsActive = state;
+    }
+    private void GLOnChange(bool prev, bool next, bool IsServer)
+    {
+        GLaunchers.GetChild(0).GetComponent<MeshRenderer>().enabled = next;
+        GLaunchers.GetChild(1).GetComponent<MeshRenderer>().enabled = next;
+    }
+
+    [ServerRpc]
+    private void GLInitializeGranade(NetworkObject granade, float force, bool leftOrRigh)
+    {
+        if (granade == null)
+        {
+            granade = Instantiate(GLGranadePrefab).GetComponent<NetworkObject>();
+            Spawn(granade.gameObject);
+        }
+        else
+        {
+            granade.transform.SetParent(null);
+        }
+
+        HeavyGranadeScript HGS = granade.GetComponent<HeavyGranadeScript>();
+        HGS.damage = GLDamage;
+        HGS.dmgType = GLDmgType;
+        HGS.range = GLRange;
+        HGS.owner = this;
+        HGS.MaxEnemies = maxEnemies;
+        HGS.timeToBoom = GLMinimumTimeToExplosion;
+        HGS.StartCoroutine("Waiter");
+        Transform temptRecoilTr;
+        if (leftOrRigh)
+            temptRecoilTr = GLaunchers.GetChild(0);
+        else
+            temptRecoilTr = GLaunchers.GetChild(1);
+
+        granade.GetComponent<Rigidbody>().velocity = Vector3.zero;
+        granade.transform.position = temptRecoilTr.GetChild(0).position;
+        granade.transform.forward = camChild.forward;
+        granade.GetComponent<Collider>().enabled = true;
+        granade.GetComponent<Rigidbody>().AddForce((camChild.forward * force), ForceMode.VelocityChange);
+    }
+
+    [ServerRpc]
+    private void GLSpawnGranade(NetworkObject gran, bool state)
+    {
+        GLLocalSpawnGranade(gran, state);
+    }
+    [ObserversRpc]
+    public void GLLocalSpawnGranade(NetworkObject gran, bool state)
+    {
+        if(state)
+            gran.GetComponent<MeshRenderer>().enabled = state;
+        if (state)
+            gran.transform.SetParent(null);
+        else
+            gran.transform.SetParent(GLGranades);
+    }
+
+    #endregion
+
+    #region Block
+    [Header("Block Variables")]
+    public float BlockTime;
+    public float BlockRechargeTime;
+    private float BlockCurTime;
+    private bool BlockCan;
+    private bool BlockIs; // logic for recharge keeping in BlockSlider
+    public float BlockDamageMultiplier;
+
+    public Transform BlockShields;
+    [SyncVar(OnChange = nameof(BlockChangeArt))] private bool BlockArtEnabled;
+
+
+    private void BlockStart()
+    {
+        if (BlockCan)
+        {
+            BlockIs = true;
+            BlockCan = false;
+            BlockCurTime = BlockTime;
+
+            BlockSingalArtChange(true);
+
+            transform.GetComponent<PlayerHP>().PlayerHPDamageMultiplayer = BlockDamageMultiplier;
+        }
+    }
+
+    private void BlockEnd()
+    {
+        Ult = false;
+        transform.GetComponent<PlayerHP>().PlayerHPDamageMultiplayer = 1f;
+
+        BlockSingalArtChange(false);
+    }
+
+    private void BlockSlider(string who)
+    {
+        float val;
+        if (BlockIs)
+        {
+            BlockCurTime -= Time.deltaTime;
+            val = BlockCurTime / BlockTime;
+            if (BlockCurTime <= 0f)
+            {
+                BlockEnd();
+                BlockIs = false;
+                BlockCurTime = 0f;
+                val = 0f;
+            }
+        }
+        else if (!BlockCan)
+        {
+            BlockCurTime += Time.deltaTime * (1f + SkillRechargeGlobalModdifier);
+            val = BlockCurTime / BlockRechargeTime;
+            if (BlockCurTime >= BlockRechargeTime)
+            {
+                val = 1f;
+                BlockCan = true;
+            }
+            if (BlockCurTime < 0f)
+                BlockCurTime = 0f;
+        }
+        else
+            val = 1f;
+
+        StartCoroutine(who, val);
+        
+    }
+
+    [ServerRpc]
+    private void BlockSingalArtChange(bool state)
+    {
+        BlockArtEnabled = state;
+    }
+    private void BlockChangeArt(bool prev, bool next, bool isServer)
+    {
+        BlockShields.GetChild(0).GetComponent<MeshRenderer>().enabled = next;
+        BlockShields.GetChild(1).GetComponent<MeshRenderer>().enabled = next;
+        BlockShields.GetChild(2).GetComponent<MeshRenderer>().enabled = next;
+        BlockShields.GetChild(3).GetComponent<MeshRenderer>().enabled = next;
+    }
+    #endregion
+
+    #region Launch
+    [Header("Launch Variables")]
+    public float LaunchDamage;
+    public string LaunchDmgType;
+    public string LaunchStatus = "fall";
+    public float LaunchFallChance;
+    public float LaunchDamageRange;
+    public float LaunchDamageForce;
+    private Collider[] LaunchColliders;
+    private Vector3 LaunchBoomPos;
+
+    public float LaunchForce;
+
+    private bool LaunchCan;
+    public float LaunchRechargeTime;
+    private float LaunchCurTime;
+
+    //public Transform LaunchArt;
+    //[SyncVar(OnChange = nameof(LaunchUpdateArt))] private bool LaunchArtState;
+
+
+    private void LaunchStart()
+    {
+        if (!LaunchCan)
+            return;
+
+        LaunchCan = false;
+        LaunchCurTime = 0f;
+
+        //LaunchArtSync(true);
+        //StartCoroutine(LaunchArtTimer());
+
+        rb.AddForce(Vector3.up * LaunchForce, ForceMode.Impulse);
+
+        LaunchBoomPos = transform.position + transform.up * -1f;
+        LaunchColliders = new Collider[maxEnemies];
+
+        Physics.OverlapSphereNonAlloc(transform.position, LaunchDamageRange, LaunchColliders, EnemyMask);
+        foreach (Collider cs in LaunchColliders)
+        {
+            if (cs != null)
+            {
+                EnemyHP h = cs.GetComponent<EnemyHP>();
+                DoDamage(h, LaunchDamage, LaunchDmgType);
+                DoStatusEffect(h, LaunchStatus, 0f, LaunchFallChance);
+            }
+        }
+        LaunchServerRpc();
+    }
+    [ServerRpc]
+    private void LaunchServerRpc()
+    {
+        StartCoroutine("LaunchAwayDelay");
+    }
+    private IEnumerator LaunchAwayDelay()
+    {
+        yield return new WaitForSeconds(0.2f);
+
+        //Vector3 boomPos = transform.position + transform.up * -1f;
+        LaunchColliders = new Collider[maxEnemies + 20];
+        Vector3 spinF = Vector3.zero;
+
+        List<NetworkObject> corpseList = new List<NetworkObject>();
+
+        Physics.OverlapSphereNonAlloc(LaunchBoomPos + transform.up, LaunchDamageRange, LaunchColliders, EnemyAndRagollLayerMask);
+
+        foreach (Collider cs in LaunchColliders)
+        {
+            if (cs != null)
+            {
+                if ((cs.gameObject.layer == 7) && !(cs.TryGetComponent(out Rigidbody r)) && !(r.isKinematic))
+                {
+                    r.AddExplosionForce(LaunchDamageForce, LaunchBoomPos, LaunchDamageRange, 2f, ForceMode.VelocityChange);
+                    spinF = new Vector3(Random.Range(-KickSpinForce, KickSpinForce), Random.Range(-KickSpinForce, KickSpinForce), Random.Range(-KickSpinForce, KickSpinForce));
+                    r.AddTorque(spinF, ForceMode.Impulse);
+                    foreach (Transform c in cs.transform)
+                    {
+                        if (c.gameObject.layer == 11)
+                        {
+                            corpseList.Add(c.GetComponent<NetworkObject>());
+                            break;
+                        }
+                    }
+                }
+                if (cs.gameObject.layer == 11)
+                {
+                    corpseList.Add(cs.transform.GetComponent<NetworkObject>());
+                }
+            }
+        }
+        if (corpseList.Count > 0)
+            LaunchAddLocalForce(corpseList, LaunchBoomPos, spinF);
+    }
+    [ObserversRpc]
+    private void LaunchAddLocalForce(List<NetworkObject> who, Vector3 where, Vector3 spin)
+    {
+        foreach (NetworkObject hw in who)
+        {
+            if (hw.transform.parent == null)
+            {
+                Rigidbody r = hw.transform.GetChild(0).GetComponent<Rigidbody>();
+                r.AddExplosionForce(LaunchDamageForce, where, LaunchDamageRange, 3f, ForceMode.VelocityChange);
+                r.AddTorque(spin, ForceMode.VelocityChange);
+            }
+            if (FallLimbForces)
+                ConfigureRagdollForce(hw.transform, where);
+        }
+    }
+
+    private void LaunchSlider(string who)
+    {
+        float val;
+        if (!LaunchCan)
+        {
+            LaunchCurTime += Time.deltaTime * (1f + SkillRechargeGlobalModdifier);
+            val = LaunchCurTime / LaunchRechargeTime;
+            if (LaunchCurTime >= LaunchRechargeTime)
+            {
+                LaunchCan = true;
+                val = 1f;
+            }
+            if (LaunchCurTime < 0f)
+                LaunchCurTime = 0f;
+        }
+        else
+            val = 1f;
+
+        StartCoroutine(who, val);
+        
+    }
+
+    //private IEnumerator LaunchArtTimer()
+    //{
+    //    yield return new WaitForSeconds(2f);
+    //    LaunchArtSync(false);
+    //}
+    //[ServerRpc]
+    //private void LaunchArtSync(bool state)
+    //{
+    //    LaunchArtState = state;
+    //}
+    //private void LaunchUpdateArt(bool prev, bool next, bool asServer)
+    //{
+    //    LaunchArt.gameObject.SetActive(next);
+    //    if (next)
+    //        LaunchArt.GetComponent<ParticleSystem>().Play();
+    //}
+
+    #endregion
+
+    #region Smash
+    [Header("Smash Variables")]
+    public float SmashDamage;
+    public string SmashDmgType;
+    public float SmashRange;
+    public string SmashStatus = "stun";
+    public float SmashFallChance;
+
+    public float SmashFallBaseForce;
+    public float SmashFallEnemyForce;
+    private Collider[] SmashColliders;
+    public float SmashDownForce;
+    private float SmashPrevDownForce;
+
+    [Tooltip("Damage Increase per 1 meter (1 unity unit)")] public float SmashIncreaseDamage;
+    private float SmashHeightAtStart;
+
+
+    private bool SmashCan;
+    private bool SmashCanRecharge;
+    public float SmashMinimumHeight;
+    public float SmashRechargeTime;
+    private float SmashCurTime;
+    private RaycastHit[] SmashCols;
+
+    public Transform SmashArt;
+
+    private void SmashStart()
+    {
+        if (!SmashCan)
+            return;
+        if (SmashMinimumHeight > 0f)
+            if (Physics.CheckBox(transform.position + transform.up * -1.5f, GroundedV3, transform.rotation, ground, QueryTriggerInteraction.Ignore))
+                return;
+        SmashCan = false;
+        SmashCanRecharge = false;
+        SmashCurTime = 0f;
+        SmashHeightAtStart = transform.position.y;
+
+        if (JumpIsFly)
+        {
+            JumpIsFly = false;
+            JumpEnd();
+        }
+
+        if (rb.velocity.y > 0f)
+            rb.velocity = new Vector3(rb.velocity.x, 0f, rb.velocity.z);
+        rb.AddForce(SmashFallBaseForce * -transform.up, ForceMode.Impulse);
+        SmashPrevDownForce = maxDownForce;
+        maxDownForce = SmashDownForce;
+        truedownForce = maxDownForce;
+
+
+    }
+
+    private void SmashEnd()
+    {
+        SmashArtSync();
+
+        SmashCanRecharge = true;
+
+        SmashHeightAtStart -= transform.position.y;
+
+        maxDownForce = SmashPrevDownForce;
+
+        SmashColliders = new Collider[maxEnemies];
+        Physics.OverlapSphereNonAlloc(transform.position, SmashRange, SmashColliders, EnemyMask);
+        foreach (Collider cs in SmashColliders)
+        {
+            if (cs != null)
+            {
+                EnemyHP h = cs.GetComponent<EnemyHP>();
+                float damagee = SmashDamage + (SmashHeightAtStart * SmashIncreaseDamage);
+
+                if (RoarUpg1true) // roar upgrade
+                    damagee *= RoarUpg1HamDmgMltCur;
+
+                DoDamage(h, damagee, LaunchDmgType);
+                DoStatusEffect(h, SmashStatus, 3f, SmashFallChance);
+            }
+        }
+        //SmashServerRpc();
+    }
+    //[ServerRpc]
+    //private void SmashServerRpc()
+    //{
+    //    StartCoroutine("SmashAwayDelay");
+    //}
+    //private IEnumerator SmashAwayDelay()
+    //{
+    //    yield return new WaitForSeconds(0.2f);
+
+    //    Vector3 boomPos = transform.position + transform.up * -1f;
+    //    SmashColliders = new Collider[maxEnemies + 20];
+    //    Vector3 spinF = Vector3.zero;
+
+    //    List<NetworkObject> corpseList = new List<NetworkObject>();
+
+    //    Physics.OverlapSphereNonAlloc(boomPos, SmashRange, SmashColliders, EnemyAndRagollLayerMask);
+
+    //    foreach (Collider cs in SmashColliders)
+    //    {
+    //        if (cs != null)
+    //        {
+    //            if ((cs.gameObject.layer == 7) && !(cs.gameObject.GetComponent<EnemyHP>().fallI))
+    //            {
+    //                Rigidbody r = cs.GetComponent<Rigidbody>();
+    //                r.AddExplosionForce(SmashFallEnemyForce, boomPos, SmashRange, 2f, ForceMode.VelocityChange);
+    //                spinF = new Vector3(Random.Range(-KickSpinForce, KickSpinForce), Random.Range(-KickSpinForce, KickSpinForce), Random.Range(-KickSpinForce, KickSpinForce));
+    //                r.AddTorque(spinF, ForceMode.Impulse);
+    //                foreach (Transform c in cs.transform)
+    //                {
+    //                    if (c.gameObject.layer == 11)
+    //                    {
+    //                        corpseList.Add(c.GetComponent<NetworkObject>());
+    //                        break;
+    //                    }
+    //                }
+    //            }
+    //            if (cs.gameObject.layer == 11)
+    //            {
+    //                corpseList.Add(cs.transform.GetComponent<NetworkObject>());
+    //            }
+    //        }
+    //    }
+    //    if (corpseList.Count > 0)
+    //        SmashAddLocalForce(corpseList, boomPos, spinF);
+    //}
+    //[ObserversRpc]
+    //private void SmashAddLocalForce(List<NetworkObject> who, Vector3 where, Vector3 spin)
+    //{
+    //    foreach (NetworkObject hw in who)
+    //    {
+    //        if (hw.transform.parent == null)
+    //        {
+    //            Rigidbody r = hw.transform.GetChild(0).GetComponent<Rigidbody>();
+    //            r.AddExplosionForce(SmashFallBaseForce, where, SmashRange, 3f, ForceMode.VelocityChange);
+    //            r.AddTorque(spin, ForceMode.VelocityChange);
+    //        }
+    //        if (FallLimbForces)
+    //            ConfigureRagdollForce(hw.transform, where);
+    //    }
+    //}
+
+    private void SmashSlider(string who)
+    {
+        float val;
+        if (SmashCanRecharge)
+        {
+            SmashCurTime += Time.deltaTime * (1f + SkillRechargeGlobalModdifier);
+            val = SmashCurTime / SmashRechargeTime;
+            if (SmashCurTime >= SmashRechargeTime)
+            {
+                SmashCan = true;
+                SmashCanRecharge = true;
+                val = 1f;
+            }
+            if (SmashCurTime < 0f)
+                SmashCurTime = 0f;
+        }
+        else if (SmashCurTime >= SmashRechargeTime)
+            val = 1f;
+        else
+            val = 0f;
+
+        StartCoroutine(who, val);
+        
+    }
+
+    [ServerRpc]
+    private void SmashArtSync()
+    {
+        SmashArtChange();
+    }
+    [ObserversRpc]
+    private void SmashArtChange()
+    {
+        SmashArt.GetComponent<ParticleSystem>().Play();
+    }
+
+    #endregion
+
+    #region Throw
+    [Header("Thorw Hammer Variables")]
+    public float ThrowDamage;
+    public string ThrowDmgType;
+
+    public int ThrowMaxHammers;
+    private int ThrowAvalableHammers;
+    private float ThrowCurHammers;
+    public float ThrowRechargeTime;
+
+    public float ThrowForce;
+    public float ThrowAngularForce;
+    [Tooltip("after first hit, how much longer should we wait around?")]
+    public float ThrowTimeToDisapear;
+
+    public GameObject ThrowHammerPrefab;
+    public Transform ThrowPool;
+
+    private void ThrowStart()
+    {
+        if (ThrowAvalableHammers == 0)
+            return;
+
+        ThrowAvalableHammers--;
+        ThrowTransferData(ThrowDamage, ThrowDmgType, ThrowForce, ThrowAngularForce, ThrowTimeToDisapear);
+
+    }
+
+    [ServerRpc]
+    private void ThrowTransferData(float damage, string type, float force, float angForce, float timeafterhit)
+    {
+        Transform hammer;
+        if (ThrowPool.childCount > 0)
+        {
+            hammer = ThrowPool.GetChild(0);
+            hammer.gameObject.SetActive(true);
+            hammer.SetParent(null);
+            ThrowSyncHammer(hammer.GetComponent<NetworkObject>(), true);
+        }
+        else
+        {
+            hammer = Instantiate(ThrowHammerPrefab).transform;
+            Spawn(hammer.gameObject);
+        }
+        hammer.position = camChild.position + camChild.forward;
+        hammer.rotation = camChild.rotation;
+
+        HeavyThrowScript hamma = hammer.GetComponent<HeavyThrowScript>();
+        hamma.Damage = damage;
+        hamma.dmgType = type;
+        hamma.returnLocation = transform.GetComponent<NetworkObject>();
+        hamma.timeafterhit = timeafterhit;
+        hamma.hit = false;
+
+        Rigidbody rbb = hammer.GetComponent<Rigidbody>();
+        rbb.AddForce(camChild.forward * force, ForceMode.Impulse);
+        rbb.AddTorque(angForce * hammer.right, ForceMode.Impulse);
+        Debug.DrawRay(hammer.position, hammer.right, Color.blue, 10f);
+    }
+    [ObserversRpc]
+    private void ThrowSyncHammer(NetworkObject hamme, bool state)
+    {
+        if (IsServer)
+            return;
+        if (state == true)
+        {
+            hamme.gameObject.SetActive(true);
+            hamme.transform.SetParent(null);
+        }
+        else
+        {
+            hamme.gameObject.SetActive(false);
+            hamme.transform.SetParent(ThrowPool);
+        }
+    }
+
+    public void ReturnHammer(NetworkObject hammer)
+    {
+        hammer.gameObject.SetActive(false);
+        hammer.transform.SetParent(ThrowPool);
+        ThrowSyncHammer(hammer, false);
+    }
+
+    private void ThrowSlider(string who)
+    {
+        if (ThrowAvalableHammers < ThrowMaxHammers)
+        {
+            ThrowCurHammers += Time.deltaTime * (1f + SkillRechargeGlobalModdifier);
+            if (ThrowCurHammers >= ThrowRechargeTime)
+            {
+                ThrowAvalableHammers++;
+                ThrowCurHammers = 0f;
+            }
+            if (ThrowCurHammers < 0f)
+                ThrowCurHammers = 0f;
+            
+        }
+        StartCoroutine(who, (Mathf.Round(ThrowAvalableHammers) / Mathf.Round(ThrowMaxHammers)) + ((ThrowCurHammers / ThrowRechargeTime) / ThrowMaxHammers));
+    }
+
+    #endregion
+
+    #region Meele
+    [Header("Meele Variables")]
+    public float MeeleDamage;
+    public string MeeleDmgType;
+    public float MeeleRange;
+    private RaycastHit[] MeeleRayHit;
+
+    public float MeeleRecharge;
+    private float MeeleCurTime;
+    private bool MeeleCan;
+
+    public Transform MeeleArt;
+    [SyncVar(OnChange = nameof(MeeleArtLocal))] private bool MeeleArtActive;
+    public Vector3 MeeleSpinSpeed;
+    private bool MeeleAnimate;
+    public float MeeleArtTime;
+    private Quaternion MeeleStartRot;
+
+    private void MeeleStart()
+    {
+        if (!MeeleCan)
+            return;
+
+        MeeleCurTime = 0f;
+        MeeleCan = false;
+
+        MeeleAnimate = true;
+        MeeleArtSync(true);
+        StartCoroutine(MeeleArtTimer());
+
+        MeeleRayHit = new RaycastHit[1];
+        if (Physics.SphereCastNonAlloc(camChild.position, 0.5f, camChild.forward, MeeleRayHit, MeeleRange, EnemyMask) > 0)
+        {
+            float damag = MeeleDamage;
+
+            if (RoarUpg1true) // roar upgrade
+                damag *= RoarUpg1HamDmgMltCur;
+
+            DoDamage(MeeleRayHit[0].transform.GetComponent<EnemyHP>(), MeeleDamage, MeeleDmgType);
+        }
+    }
+
+    private IEnumerator MeeleArtTimer()
+    {
+        yield return new WaitForSeconds(MeeleArtTime);
+        MeeleAnimate = false;
+        MeeleArtSync(false);
+        yield return new WaitForSeconds(0.2f);
+        MeeleArt.localRotation = MeeleStartRot;
+    }
+
+    [ServerRpc]
+    private void MeeleArtSync(bool state)
+    {
+        MeeleArtActive = state;
+    }
+
+    private void MeeleArtLocal(bool ptrv, bool next, bool asserver)
+    {
+        MeeleArt.GetComponent<MeshRenderer>().enabled = next;
+    }
+
+
+    private void MeeleSlider(string who)
+    {
+        float val;
+        if (!MeeleCan)
+        {
+            MeeleCurTime += Time.deltaTime * (1f + SkillRechargeGlobalModdifier);
+            if (MeeleCurTime >= MeeleRecharge)
+            {
+                MeeleCan = true;
+            }
+            if (MeeleCurTime < 0f)
+                MeeleCurTime = 0f;
+            val = MeeleCurTime / MeeleRecharge;
+        }
+        else
+            val = 1f;
+
+        StartCoroutine(who, val);
+        
+    }
+
+    #endregion
+
+
+
+    #region Passive
+    //Choleric
+    [HideInInspector] public float CholericCurRate;
+
+    //Last Second Optimist
+    [HideInInspector] public float LastSecondOptimistHpPercentToMultiplier; // multiple of linear raise bethween 30% and 0% of curent HP
+    [HideInInspector] private float LastSecondOptimistPrevMulti;
+
+    //come at me bro
+    [HideInInspector] public float ComeAtMeBroMaxDistance;
+    [HideInInspector] public float ComeAtMeBroMutiplier;
+
+    // Pussy Cat
+    [HideInInspector] public float PussyCatMinimumDistance;
+    [HideInInspector] public float PussyCatMaximumDistance;
+    [HideInInspector] public float PussyCatMuliplier;
+
+    //Cocaine
+    //new jump force, speed and sidespeed set from card
+
+    // risky business
+    //new maxHP and Speed both set from card
+
+    // Slow and Steady 
+    //new maxHP and Speed both set from card
+
+    //better is better then good
+    [HideInInspector] public float BetterIBTGExtraChance;
+
+    //Vaccine
+    //ON HOLD FOR DEMO
+
+    //Inert
+    //Decrease SkillRechargeGlobal, Increase MaxHP
+
+    //Unstable
+    //Increase SkillRechargeGlobal, Decrease MaxHP
+
+    //Independent
+    //Set PlayerHP CanHealSelf on ServerSide
+
+    //FriendShitPowers
+    [HideInInspector] public float FriendShitPowersMaxDistance;
+    [HideInInspector] public float FriendShitPowersMultiplier;
+
+    //Asocial
+    [HideInInspector] public float AsocialMaxDistance;
+    [HideInInspector] public float AsocialMultiplier;
+    #endregion
+
+
+}
