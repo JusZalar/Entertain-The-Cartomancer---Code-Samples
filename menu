@@ -1,0 +1,264 @@
+using FishNet.Managing;
+using FishNet.Transporting;
+using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
+using TMPro;
+using UnityEngine.SceneManagement;
+
+public class StartGameScript : MonoBehaviour
+{
+    #region Types.
+    /// <summary>
+    /// Ways the HUD will automatically start a connection.
+    /// </summary>
+    private enum AutoStartType
+    {
+        Disabled,
+        Host,
+        Server,
+        Client
+    }
+    #endregion
+
+    #region Private.
+    /// <summary>
+    /// Found NetworkManager.
+    /// </summary>
+    private NetworkManager _networkManager;
+    /// <summary>
+    /// Current state of client socket.
+    /// </summary>
+    private LocalConnectionState _clientState = LocalConnectionState.Stopped;
+    /// <summary>
+    /// Current state of server socket.
+    /// </summary>
+    private LocalConnectionState _serverState = LocalConnectionState.Stopped;
+    #endregion
+
+
+    private void Awake()
+    {
+        _networkManager = FindObjectOfType<NetworkManager>();
+        Port = _networkManager.TransportManager.Transport.GetPort();
+        Adress = "localhost";
+        _networkManager.ServerManager.OnServerConnectionState += ServerManager_OnServerConnectionState;
+        _networkManager.ClientManager.OnClientConnectionState += ClientManager_OnClientConnectionState;
+    }
+
+    public string Adress;
+    public ushort Port = 7748;
+    public TMP_InputField PortField;
+    public TMP_InputField PortField2;
+    public TMP_InputField AdressField;
+
+    public void SetAdress()
+    {
+        Adress = AdressField.text;
+    }
+    public void SetPort()
+    {
+        if (ushort.TryParse(PortField.text, out ushort res))
+            Port = res;
+        PortField.text = Port.ToString();
+        PortField2.text = Port.ToString();
+    }
+    public void SetPort2()
+    {
+        if (ushort.TryParse(PortField2.text, out ushort res))
+            Port = res;
+        PortField2.text = Port.ToString();
+        PortField.text = Port.ToString();
+    }
+
+    private bool Disconect;
+
+    private void ClientManager_OnClientConnectionState(ClientConnectionStateArgs obj)
+    {
+        if (Disconect)
+            return;
+
+        if ((obj.ConnectionState == LocalConnectionState.Stopping) || (obj.ConnectionState == LocalConnectionState.Starting)) //if state is changing set load
+            Loadbar(true);
+        else
+            Loadbar(false);
+
+        if(obj.ConnectionState == LocalConnectionState.Started)
+        {
+            OnClick_Play(); // set right play menu
+            if (_serverState != LocalConnectionState.Stopped)
+                StartGame.SetActive(true); // if were the host give us start game button
+        }
+
+        if ((_clientState == LocalConnectionState.Starting) && (obj.ConnectionState != LocalConnectionState.Started)) // if we were starting and didnt start error;
+            ClientErrorBox.gameObject.SetActive(true);
+        if ((_clientState == LocalConnectionState.Started) && !Disconect) // if we left started and didnt click disconect error
+            OnClick_Disconect();
+
+        //if (Disconect && obj.ConnectionState == LocalConnectionState.Stopped) // reset disconect
+        //    Disconect = false;
+
+        //if((_clientState == LocalConnectionState.Started) && (obj.ConnectionState == LocalConnectionState.Stopping)) // end networked objects on leaving network
+        //{
+            
+        //}
+
+        _clientState = obj.ConnectionState;
+    }
+
+
+    private void ServerManager_OnServerConnectionState(ServerConnectionStateArgs obj)
+    {
+        _serverState = obj.ConnectionState;
+    }
+
+    public void OnClick_Server()
+    {
+        if (_networkManager == null)
+            return;
+
+        if ((_serverState != LocalConnectionState.Stopped) || (_clientState != LocalConnectionState.Stopped))
+        {
+            _networkManager.ClientManager.StopConnection();
+            _networkManager.ServerManager.StopConnection(true);
+        }
+        else
+        {
+            _networkManager.TransportManager.Transport.SetPort(Port);
+            _networkManager.ServerManager.StartConnection();
+            _networkManager.ClientManager.StartConnection("localhost", Port);
+        }
+
+    }
+
+
+    public void OnClick_Client()
+    {
+        if (_networkManager == null)
+            return;
+
+        if (_clientState != LocalConnectionState.Stopped)
+            _networkManager.ClientManager.StopConnection();
+        else
+            _networkManager.ClientManager.StartConnection(Adress, Port);
+    }
+
+
+
+    public void OnClick_Disconect()
+    {
+        Disconect = true;
+
+        if (_clientState != LocalConnectionState.Stopped)
+        {
+            _networkManager.ClientManager.StopConnection();
+        }
+        if(_serverState != LocalConnectionState.Stopped)
+        {
+            _networkManager.ServerManager.StopConnection(true);
+        }
+        SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+    }
+
+    public GameObject OfflinePlay;
+    public GameObject Settings;
+    public GameObject OnlinePlay;
+    public GameObject StartGame;
+
+    public void OnClick_Play()
+    {
+        Settings.SetActive(false);
+        if (_clientState != LocalConnectionState.Stopped) // Online
+        {
+            OnlinePlay.SetActive(true);
+            OfflinePlay.SetActive(false);
+        }
+        else // Offline
+        {
+            OfflinePlay.SetActive(true);
+            OnlinePlay.SetActive(false);
+        }
+    }
+
+    public void OnClick_Settings()
+    {
+        Settings.SetActive(true);
+        if (_clientState != LocalConnectionState.Stopped) // Online
+        {
+            OnlinePlay.SetActive(false);
+        }
+        else // Offline
+        {
+            OfflinePlay.SetActive(false);
+        }
+    }
+
+    public UnityEngine.Rendering.VolumeProfile Volume;
+    public Toggle FlashingLightsToggle;
+
+    public void OnChange_FlashingLights()
+    {
+        Volume.TryGet(out UnityEngine.Rendering.Universal.Bloom bloom);
+        bloom.active = FlashingLightsToggle.isOn;
+    }
+
+
+    #region Load
+    public GameObject LoadIcon;
+    public GameObject ClientErrorBox;
+    public GameObject PlayButton;
+
+    private void Loadbar(bool state) // true means show loading
+    {
+        if (this == null)
+            return;
+        OfflinePlay.SetActive(!state);
+        PlayButton.SetActive(!state);//if true set menu to false
+        LoadIcon.SetActive(state);// and loading to true, otherwise oposite
+        if (state)
+            InvokeRepeating("LoadSlider", 0f, 0.02f);
+        else
+            CancelInvoke("LoadSlider");
+
+    }
+    public Transform LoadingWordCont;
+    private float LoadCurValue;
+    private float LoadWaitValue;
+    public Transform LoadingWait;
+
+    private void LoadSlider()
+    {
+        LoadCurValue -= Time.deltaTime;
+        LoadingWordCont.GetChild(0).GetComponent<Slider>().value = LoadCurValue;
+        LoadingWordCont.GetChild(1).GetComponent<Slider>().value = -LoadCurValue;
+        if (LoadCurValue < -1f)
+            LoadCurValue = 1f;
+
+
+        LoadWaitValue += Time.deltaTime / 5f;
+        Color c = Color.white;
+        for (int i = 0; i < LoadingWait.childCount; i++)
+        {
+            float ourLWV = LoadWaitValue + i * 0.33f;
+            LoadingWait.GetChild(i).GetComponent<RectTransform>().localScale = new Vector3(ourLWV, ourLWV, 1f);
+            c.a = 1f - ourLWV;
+            LoadingWait.GetChild(i).GetComponent<TextMeshProUGUI>().color = c;
+        }
+        if (LoadWaitValue >= 0.33f)
+            LoadWaitValue = 0f;
+    }
+    #endregion
+
+
+    public void OnClick_StartGame()
+    {
+        _networkManager.ServerManager.Clients[0].FirstObject.GetComponent<MenuPlayer>().MonoToHostToGame();
+    }
+
+
+    public void QuitGame()
+    {
+        Application.Quit();
+    }
+
+}
