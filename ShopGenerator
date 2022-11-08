@@ -1,0 +1,95 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using FishNet.Object;
+using FishNet.Connection;
+
+public class ShopGenerator : NetworkBehaviour
+{
+
+    public List<NetworkObject> ShelfPlayerNO = new List<NetworkObject>();
+    [HideInInspector]
+    public NetworkObject myManagerPool;
+
+    public int NumberToGenerate;
+    public GameObject CardHolderPrefab;
+    public float SpaceBetweenCards;
+
+    public List<Transform> Shops = new List<Transform>();
+    
+    [ServerRpc(RequireOwnership = false)]
+    public void GenerateShops()
+    {
+        myManagerPool = GameObject.FindWithTag("Manager").GetComponent<NetworkObject>();
+        ShelfPlayerNO = myManagerPool.GetComponent<DataHolder>().Players;
+        for(int i = 0; i < ShelfPlayerNO.Count; i++)
+        {
+            GenCards(ShelfPlayerNO[i].Owner, 0);
+        }
+    }
+    private List<int> used;
+    [TargetRpc]
+    private void GenCards(NetworkConnection target, int shelfParentint = 0)
+    {
+        Transform shelfParent = transform.GetChild(shelfParentint);
+        //                   Client PlayerNO              Canvas      Remaps             
+        Transform avalable = target.FirstObject.transform.GetChild(1).GetChild(0).Find("NonActiveCards").Find("Avalable");
+        List<Transform> Holders = new List<Transform>();
+        used = new List<int>();
+        GameObject Card = null;
+        for (int i = 0; i < NumberToGenerate; i++)
+        {
+            if (avalable.childCount > 0 && avalable.childCount > used.Count)
+            {
+                int l = -1;
+                while (used.Contains(l) || l < 0)
+                {
+                    l = Random.Range(0, avalable.childCount);
+                }
+                used.Add(l);
+                Card = avalable.GetChild(l).gameObject;
+            }
+            else
+                break;
+            Transform Holder = Instantiate(CardHolderPrefab, transform.position, transform.rotation * Quaternion.Euler(0f, 180f, 0f), shelfParent).transform;
+            Holder.GetComponent<Canvas>().worldCamera = LocalConnection.FirstObject.transform.GetChild(0).GetComponent<Camera>();
+            Holder.GetComponent<CardHolder>().MyCard = Card.transform;
+            Holder.GetComponent<CardHolder>().price = PlayerRefrence.CurrentPrice;
+            Card = Instantiate(Card, Holder.position, Quaternion.identity, Holder); // art copy of Card
+            Card.GetComponent<RectTransform>().localRotation = Quaternion.identity;
+            Holders.Add(Holder);
+        }
+
+        int numberofCards = Holders.Count;
+        if (numberofCards % 2 == 0) //even number of cards
+        {
+            numberofCards /= 2;
+            for (int j = 0; j < numberofCards; j++)
+            {
+                Holders[j].position = shelfParent.position + (shelfParent.right * SpaceBetweenCards * (j + 0.5f)) + Vector3.up * 2;
+            }
+            for (int j = 0; j < numberofCards; j++)
+            {
+                Holders[j + numberofCards].position = shelfParent.position + -shelfParent.right * (SpaceBetweenCards * (j + 0.5f)) + Vector3.up * 2;
+            }
+        }
+        else // odd number of cards
+        {
+            numberofCards -= 1;
+            numberofCards /= 2;
+
+            Holders[0].position = shelfParent.position + Vector3.up * 2;
+            if (numberofCards == 0)
+                return;
+
+            for (int j = 0; j < numberofCards; j++)
+            {
+                Holders[j + 1].position = shelfParent.position + shelfParent.right * (SpaceBetweenCards * (j + 1)) + Vector3.up * 2;
+            }
+            for (int j = 0; j < numberofCards; j++)
+            {
+                Holders[j + 1 + numberofCards].position = shelfParent.position + -shelfParent.right * (SpaceBetweenCards * (j + 1)) + Vector3.up * 2;
+            }
+        }
+        InitialSyncShop(Holders);
+    }
